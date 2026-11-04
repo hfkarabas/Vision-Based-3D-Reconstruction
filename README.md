@@ -56,7 +56,7 @@ See [the matching report](docs/TASK01_REPORT.md), [the two-view report](docs/TAS
 
 RANSAC can fit misleading geometry for moving subjects, planar scenes, pure rotation, repeated texture, or small baselines. High match counts are not evidence of usable camera geometry or successful reconstruction. Blur scores are descriptive and do not automatically reject frames. Truncated videos may appear as early decoder EOF; codec support depends on the OpenCV build. Failed runs may leave partial diagnostics. Timing excludes interpreter startup and final JSON/CSV serialization and is not a controlled benchmark. The target i5-11400H/GTX 1650 machine has not been separately tested.
 
-Next stages: broader camera/dataset validation, track refinement and stronger local optimization coverage. Dense reconstruction, meshing, OBJ/GLB export, adaptive frame selection and interactive visualization are later work.
+Next stages: broader camera/dataset validation, track refinement and stronger local optimization coverage. Dense reconstruction, meshing, OBJ/GLB export and adaptive frame selection are later work. An interactive local sparse-reconstruction demo is available below.
 
 ## Reconstruct two photographs
 
@@ -155,3 +155,31 @@ These flags are **experimental and off by default**. `--recovery-pairs` bounds a
 On Temple 30, discovery registered 23/30 cameras versus 18/30, but rotation accuracy worsened, including on the same 18-camera comparison set. Joint refinement reduced Temple 15 image residuals while worsening reference rotation accuracy; other joint proposals rolled back. These are controlled negative/tradeoff findings, not a successful accuracy-improving default. Full registration and safe drift reduction remain unresolved; dense reconstruction is not ready.
 
 See [the recovery report](docs/TASK05_REPORT.md) for root causes, all individual/combined experiments, exact metrics and reproducibility. `outputs/progress-presentation-final/` contains traceable real-image matches, reconstructed points/cameras, registration and pose-accuracy comparisons, graph diagnostics and compact tables for the November 9, 2026 university update. No slides or academic paper are generated. Keep the pre-change baseline run (or archived preceding source) for the evidence script, and use fresh output directories when reproducing.
+
+## Local desktop demonstration
+
+Launch from the configured checkout (Python 3.12, existing dependencies and Tkinter):
+
+```powershell
+.venv\Scripts\python.exe -m vision3d.demo
+```
+
+Alternatively, double-click `run_demo.bat`. The launcher uses this checkout's `.venv` and does not require administrator privileges. Standard Windows Python includes Tkinter; verify it with `.venv\Scripts\python.exe -m tkinter` if needed. No new Python dependencies, browser, server or dataset download is required.
+
+For the presentation, select **Load Castle Demo → Start Reconstruction → Open 3D View**. The existing six photographs in `datasets/sceaux/images` and published intrinsics in `configs/sceaux.json` must already be present. A real run takes about 16 seconds on the tested desktop; allow additional time on other hardware. Mouse left-drag rotates, the wheel zooms, and Ctrl + left-drag or wheel-button drag pans. Close the viewer with Q or the window close button; the application remains available.
+
+For custom input, **Browse** to an ordered folder containing 2–30 JPEG/PNG images, then select a **Camera JSON**. Use the existing shared-camera format or an `images` mapping keyed by exact filenames. Calibration must describe original EXIF-oriented dimensions; the engine handles resize scaling. This deliberately small demo requires calibrated intrinsics. Approximate calibration remains an explicit CLI-only option. Unreadable files are reported and skipped; fewer than two readable images is an error. Geometric success is never guaranteed for an arbitrary folder.
+
+Each run gets a new `outputs/demo/run_<UTC timestamp>_<id>/` directory. `reconstruction.log` and `demo_request.json` sit beside the engine's `reconstruction/` folder, which contains `metrics.json`, `sparse.ply`, poses, tracks and intrinsics. Existing results are not overwritten. Stage messages come from completed engine artifacts; camera and landmark counts appear only after final metrics exist. A partial result is clearly labeled and does not mean all input images registered. Sparse PLY is not a mesh or a textured asset.
+
+**Open Output Folder** opens the actual run/result folder. **Open Previous Result** loads an existing reconstruction folder containing `metrics.json` and `sparse.ply`; it is explicitly labeled as previously computed, making it a presentation backup rather than a claimed live run. **Open 3D View** launches a separate Open3D process using the actual PLY. No unstable rendering widget is embedded in Tkinter. Duplicate jobs and duplicate viewers are prevented; closing the app asks before stopping an active reconstruction and reaps its child process. There is no advertised cancellation feature.
+
+Troubleshooting:
+
+- Missing Castle data: select existing local photographs manually; the app does not download replacements.
+- Missing/wrong calibration: select a valid JSON with matching EXIF-oriented image dimensions; see `configs/sceaux.json` for the shared-camera format.
+- Reconstruction rejected/failed: read the visible error and the run's `reconstruction.log` / `metrics.json`; select a connected, translated, nonplanar sequence. Quality thresholds are unchanged.
+- Missing/corrupt PLY: select an intact result or rerun reconstruction. The viewer validates nonempty finite points and colors.
+- Open3D window failure: use a local graphical desktop with a working OpenGL driver. Reconstruction is CPU-based; visualization still needs graphics support. Remote/headless rendering and the target laptop are not validated.
+
+See [the desktop validation report](docs/TASK06_REPORT.md) for exact real-run results, automated tests and the limits of interactive validation. Experimental graph discovery and joint BA are not enabled by the demo; the established bounded local BA configuration is retained.
