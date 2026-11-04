@@ -89,7 +89,8 @@ def match_sequence(views, window, long_gap, quality, ratio, seed=0, recovery_pai
 def reconstruct_sequence(input_path, output, camera=None, approximate=False, focal_px=None, fov_degrees=None,
                          detector="sift", max_dimension=1600, max_features=6000, ratio=0.75,
                          window=2, long_gap=4, max_images=30, min_registered=5, local_ba=False,
-                         quality_config=None, seed=0, feature_cache=None, recovery_pairs=0, joint_ba=False):
+                         quality_config=None, seed=0, feature_cache=None, recovery_pairs=0, joint_ba=False,
+                         refine_points=False):
     start = perf_counter()
     stages = {k: 0.0 for k in ("loading_preprocessing", "features", "matching", "tracks", "initial_pair",
                                "registration", "triangulation", "bundle_adjustment", "validation", "export")}
@@ -178,7 +179,7 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                            "ratio": ratio, "window": window, "long_gap": long_gap, "max_images": max_images,
                            "min_registered": min_registered, "local_ba": local_ba, "seed": seed,
                            "opencv_threads": 1, "feature_cache": str(Path(feature_cache).resolve()) if feature_cache else None,
-                           "recovery_pairs": recovery_pairs, "joint_ba": joint_ba,
+                           "recovery_pairs": recovery_pairs, "joint_ba": joint_ba, "refine_points": refine_points,
                            "geometry": asdict(geometry), "registration": asdict(pnp_quality), "bundle": asdict(bundle)},
                 "versions": {n: importlib.metadata.version(n) for n in ("vision3d", "numpy", "scipy", "opencv-contrib-python", "open3d")}}
     write_json(output / "manifest.json", manifest)
@@ -233,6 +234,17 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
         bundle_history.append(local_bundle_adjust(state, bundle, geometry.max_reprojection_px,
             geometry.min_angle_degrees, geometry.max_distance, joint=True))
         stages['bundle_adjustment'] += perf_counter() - phase_start
+    point_refinement = {"status": "disabled"}
+    if refine_points:
+        from .refinement import refine_landmarks
+        before_points = validate_landmarks(state, geometry.max_reprojection_px,
+            min_angle_degrees=geometry.min_angle_degrees, max_distance=geometry.max_distance)
+        point_refinement = refine_landmarks(state, geometry.max_reprojection_px,
+            geometry.min_angle_degrees, geometry.max_distance)
+        point_refinement["full_map_before"] = before_points
+        point_refinement["full_map_after"] = validate_landmarks(state, geometry.max_reprojection_px,
+            min_angle_degrees=geometry.min_angle_degrees, max_distance=geometry.max_distance)
+        stages["point_refinement"] = point_refinement["seconds"]
     phase_start = perf_counter()
     validation_args = {"min_angle_degrees": geometry.min_angle_degrees, "max_distance": geometry.max_distance}
     current_quality = validate_landmarks(state, geometry.max_reprojection_px, **validation_args)
@@ -247,7 +259,8 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                "initial_pair": list(state.anchors), "registration_order": state.registration_order,
                "tracks": track_metrics, "valid_landmarks": len(state.landmarks), "weakly_supported_images": weak,
                "before_final_ba": before_final_ba, "after_final_ba": after_final_ba,
-               "final_pruning": final_quality, "bundle_adjustment": bundle_history, "incremental_steps": state.history}
+               "final_pruning": final_quality, "bundle_adjustment": bundle_history, "incremental_steps": state.history,
+               "point_refinement": point_refinement}
     phase_start = perf_counter()
     write_json(output / "poses.json", [{"image_id": i, "name": v.name, "status": "registered" if i in state.poses else "rejected",
                 "world_to_camera": state.poses[i].matrix.tolist() if i in state.poses else None,

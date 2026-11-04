@@ -166,7 +166,7 @@ Launch from the configured checkout (Python 3.12, existing dependencies and Tkin
 
 Alternatively, double-click `run_demo.bat`. The launcher uses this checkout's `.venv` and does not require administrator privileges. Standard Windows Python includes Tkinter; verify it with `.venv\Scripts\python.exe -m tkinter` if needed. No new Python dependencies, browser, server or dataset download is required.
 
-For the presentation, select **Load Castle Demo → Start Reconstruction → Open 3D View**. The existing six photographs in `datasets/sceaux/images` and published intrinsics in `configs/sceaux.json` must already be present. A real run takes about 16 seconds on the tested desktop; allow additional time on other hardware. Mouse left-drag rotates, the wheel zooms, and Ctrl + left-drag or wheel-button drag pans. Close the viewer with Q or the window close button; the application remains available.
+For the presentation, select **Load Castle Demo → Start Reconstruction → Open 3D View**. The existing six photographs in `datasets/sceaux/images` and published intrinsics in `configs/sceaux.json` must already be present. With the validated fixed-camera point refinement, a real run takes about 20–23 seconds on the tested desktop; allow additional time on other hardware. Mouse left-drag rotates, the wheel zooms, and Ctrl + left-drag or wheel-button drag pans. Close the viewer with Q or the window close button; the application remains available. R resets the camera-aligned view; C toggles estimated camera outlines and A toggles coordinate axes when camera metadata exists. Overlays are display context, not reconstructed landmarks. Every exported point is displayed; no filtering or interpolation is applied by the viewer.
 
 For custom input, **Browse** to an ordered folder containing 2–30 JPEG/PNG images, then select a **Camera JSON**. Use the existing shared-camera format or an `images` mapping keyed by exact filenames. Calibration must describe original EXIF-oriented dimensions; the engine handles resize scaling. This deliberately small demo requires calibrated intrinsics. Approximate calibration remains an explicit CLI-only option. Unreadable files are reported and skipped; fewer than two readable images is an error. Geometric success is never guaranteed for an arbitrary folder.
 
@@ -183,3 +183,18 @@ Troubleshooting:
 - Open3D window failure: use a local graphical desktop with a working OpenGL driver. Reconstruction is CPU-based; visualization still needs graphics support. Remote/headless rendering and the target laptop are not validated.
 
 See [the desktop validation report](docs/TASK06_REPORT.md) for exact real-run results, automated tests and the limits of interactive validation. Experimental graph discovery and joint BA are not enabled by the demo; the established bounded local BA configuration is retained.
+
+## Sparse quality investigation
+
+The desktop now adds a bounded final **fixed-camera multi-view point refinement**. It optimizes existing landmarks with at least three accepted observations, preserving camera poses, intrinsics, associations, colors and point count. Finite/depth/reprojection/angle/movement gates reject unsafe proposals. Two-view points are unchanged. The standalone CLI retains its previous defaults; request refinement explicitly:
+
+```powershell
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence --input datasets/sceaux/images --camera configs/sceaux.json --local-ba --refine-points --output outputs/castle-refined-new
+# Reproduce individual ablations in a NEW directory; existing run folders are rejected:
+.venv\Scripts\python.exe scripts/reconstruction_quality.py --output outputs/quality-new --case castle_baseline --case castle_refined --case temple_baseline --case temple_refined
+.venv\Scripts\python.exe scripts/reconstruction_quality.py --output outputs/quality-new --summarize
+```
+
+Recorded Castle results retain 6/6 cameras and 3,915 landmarks: RMS reprojection error decreases from 0.587 to 0.477 px, while median error increases from 0.285 to 0.306 px. Temple retains 18/30 cameras, 2,664 landmarks and exactly the same reference camera errors, with lower RMS but slightly higher median reprojection error. These results improve aggregate point fit conditional on fixed cameras; they do not establish absolute surface accuracy or recover missing architectural detail. Larger feature targets, stricter matching, higher resolution and expanded BA were not adopted. Quality subsets are labeled diagnostic plots only and are not automatically pruned from PLY outputs.
+
+See [the sparse-quality report](docs/TASK07_REPORT.md) for all ablations, genuine before/after figures, independent validation, runtime costs and remaining limitations. The original demonstration measurements and historical benchmark/presentation artifacts remain unchanged.
