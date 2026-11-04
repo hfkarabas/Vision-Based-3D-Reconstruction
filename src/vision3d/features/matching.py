@@ -29,7 +29,7 @@ class Matches:
                 "fundamental_matrix": self.matrix.tolist() if self.matrix is not None else None}
 
 
-def match(first, second, ratio=0.75, mutual=False, threshold=1.5, confidence=0.99):
+def match(first, second, ratio=0.75, mutual=False, threshold=1.5, confidence=0.99, geometric=True):
     ratio_filter([], ratio)
     if first.config["detector"] != second.config["detector"]:
         raise ValueError("Cannot match different descriptor families")
@@ -49,6 +49,8 @@ def match(first, second, ratio=0.75, mutual=False, threshold=1.5, confidence=0.9
             reverse = ratio_filter(matcher.knnMatch(b, a, k=2), ratio) if len(a) >= 2 else []
             pairs = {(m.trainIdx, m.queryIdx) for m in reverse}
             consistent = [m for m in filtered if (m.queryIdx, m.trainIdx) in pairs]
+    if not geometric:
+        return Matches(raw, filtered, consistent, [], None, "not_requested", perf_counter() - start)
     p1 = first.points[[m.queryIdx for m in consistent]]
     p2 = second.points[[m.trainIdx for m in consistent]]
     matrix, mask, status = verify(p1, p2, threshold, confidence)

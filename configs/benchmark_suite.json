@@ -1,0 +1,14 @@
+{
+  "description": "Castle tuning/regression; Temple held out from algorithm and threshold tuning",
+  "defaults": {"max_dimension": 1600, "max_features": 6000, "window": 2, "long_gap": 4, "seed": 0, "local_ba": true},
+  "cases": [
+    {"name": "castle6", "split": "tuning", "input": "datasets/sceaux/images", "camera": "configs/sceaux.json", "cache_tag": "castle6"},
+    {"name": "castle6_warm", "split": "tuning", "input": "datasets/sceaux/images", "camera": "configs/sceaux.json", "cache_tag": "castle6", "cache_state": "warm"},
+    {"name": "castle6_approx", "split": "tuning", "input": "datasets/sceaux/images", "fov_degrees": 60, "cache_tag": "castle6"},
+    {"name": "temple6", "split": "held_out", "input": "datasets/temple/images6", "camera": "datasets/temple/cameras.json", "reference": "datasets/temple/reference_poses.json", "cache_tag": "temple6"},
+    {"name": "temple15", "split": "held_out", "input": "datasets/temple/images15", "camera": "datasets/temple/cameras.json", "reference": "datasets/temple/reference_poses.json", "cache_tag": "temple15"},
+    {"name": "temple30", "split": "held_out", "input": "datasets/temple/images30", "camera": "datasets/temple/cameras.json", "reference": "datasets/temple/reference_poses.json", "cache_tag": "temple30"},
+    {"name": "temple30_warm", "split": "held_out", "input": "datasets/temple/images30", "camera": "datasets/temple/cameras.json", "reference": "datasets/temple/reference_poses.json", "cache_tag": "temple30", "cache_state": "warm"},
+    {"name": "temple15_approx", "split": "held_out", "input": "datasets/temple/images15", "fov_degrees": 60, "reference": "datasets/temple/reference_poses.json", "cache_tag": "temple15"}
+  ]
+}

@@ -73,6 +73,7 @@ def build_tracks(edges):
     """
     parent, members = {}, {}
     conflicts = duplicates = 0
+    rejected = []
     def root(obs):
         if obs not in parent:
             parent[obs] = obs
@@ -94,6 +95,9 @@ def build_tracks(edges):
             continue
         if members[a].keys() & members[b].keys():
             conflicts += 1
+            if len(rejected) < 1000:
+                rejected.append({"left": left, "right": right, "reason": "duplicate_image_in_component",
+                                 "conflicting_images": sorted(members[a].keys() & members[b].keys())})
             continue
         if b < a:
             a, b = b, a
@@ -103,4 +107,6 @@ def build_tracks(edges):
     tracks = {i: Track(i, dict(sorted(m.items()))) for i, m in enumerate(groups)}
     return tracks, {"tracks": len(tracks), "observations": sum(len(t.observations) for t in tracks.values()),
                     "length_distribution": dict(sorted(Counter(len(t.observations) for t in tracks.values()).items())),
-                    "conflicting_edges_rejected": conflicts, "duplicate_or_cycle_edges": duplicates}
+                    "conflicting_edges_rejected": conflicts, "duplicate_or_cycle_edges": duplicates,
+                    "conflict_examples": rejected, "conflict_examples_truncated": conflicts > len(rejected),
+                    "two_view_tracks": sum(len(t.observations) == 2 for t in tracks.values())}

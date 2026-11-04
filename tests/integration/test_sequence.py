@@ -28,7 +28,8 @@ def test_five_view_cli_and_exports(tmp_path, monkeypatch):
     camera.write_text(json.dumps({"images": {f"{i:02d}.png": calibration for i in range(6)}}))
     output = tmp_path / "result"
     main(["reconstruct-sequence", "--input", str(source), "--camera", str(camera),
-          "--output", str(output), "--max-features", "2000", "--max-dimension", "800", "--local-ba"])
+          "--output", str(output), "--max-features", "2000", "--max-dimension", "800", "--local-ba",
+          "--feature-cache", str(tmp_path / "cache")])
     metrics = json.loads((output / "metrics.json").read_text())
     assert metrics["registered_images"] == 5
     assert metrics["input_images"] == 6 and metrics["rejected_images"] == [5]
@@ -42,6 +43,17 @@ def test_five_view_cli_and_exports(tmp_path, monkeypatch):
     assert len({t["landmark_id"] for t in tracks if t["landmark_id"] is not None}) == metrics["valid_landmarks"]
     poses = json.loads((output / "poses.json").read_text())
     assert len(poses) == 6 and poses[-1]["world_to_camera"] is None
+    second = tmp_path / "warm"
+    main(["reconstruct-sequence", "--input", str(source), "--camera", str(camera),
+          "--output", str(second), "--max-features", "2000", "--max-dimension", "800", "--local-ba",
+          "--feature-cache", str(tmp_path / "cache")])
+    warm = json.loads((second / "metrics.json").read_text())
+    assert warm["feature_cache_hits"] == 6
+    assert warm["registration_order"] == metrics["registration_order"]
+    assert warm["valid_landmarks"] == metrics["valid_landmarks"]
+    warm_poses = json.loads((second / "poses.json").read_text())
+    assert [p["world_to_camera"] for p in poses] == [p["world_to_camera"] for p in warm_poses]
+    assert [l["xyz"] for l in json.loads((output / "landmarks.json").read_text())] == [l["xyz"] for l in json.loads((second / "landmarks.json").read_text())]
 
 
 def test_sequence_rejection_cli(tmp_path):

@@ -143,6 +143,7 @@ def main(argv=None):
     sequence.add_argument("--ratio", type=float, default=0.75)
     sequence.add_argument("--local-ba", action="store_true")
     sequence.add_argument("--quality-config", help="JSON geometry, registration and bundle thresholds")
+    sequence.add_argument("--feature-cache", help="Content/configuration keyed numeric feature cache directory")
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
     if selected == "reconstruct-sequence":

@@ -167,3 +167,118 @@ def test_invalid_pose_convention():
         Pose(np.diag([1, 1, -1]), np.zeros(3))
     with pytest.raises(ValueError):
         Pose(np.eye(3), [np.nan, 0, 0])
+
+
+def test_bundle_uses_fixed_covisible_boundary_after_leaving_anchors(scene):
+    state, xyz, poses = scene
+    state.poses = dict(poses)
+    state.anchors = (0, 1)
+    state.registration_order = [0, 1, 2, 3, 4]
+    rng = np.random.default_rng(22)
+    state.landmarks = {i: Landmark(i, x + rng.normal(0, 0.01, 3), np.full(3, 0.5), {2: i, 3: i, 4: i}) for i, x in enumerate(xyz)}
+    state.poses[4] = Pose(poses[4].rotation, poses[4].translation + [0.02, 0.01, 0])
+    fixed_before = {i: state.poses[i].matrix.copy() for i in (0, 1, 2, 3)}
+    result = local_bundle_adjust(state, BundleOptions(max_cameras=3, max_points=100, max_evaluations=50))
+    assert result["status"] == "accepted" and set(result["fixed_cameras"]) == {2, 3}
+    assert result["local_same_observation_rms_px"]["after"] < result["local_same_observation_rms_px"]["before"]
+    for i, value in fixed_before.items():
+        assert np.array_equal(state.poses[i].matrix, value)
+
+
+def test_bundle_checks_invalid_observation_identity_not_only_count(scene, monkeypatch):
+    state = prepared_bundle(scene)
+    before = state.poses[2].matrix.copy()
+    outcomes = iter([{(0, 0, 0)}, {(1, 1, 1)}])
+    monkeypatch.setattr("vision3d.reconstruction.bundle.invalid_observations", lambda *args: next(outcomes))
+    result = local_bundle_adjust(state, BundleOptions(max_points=100, max_evaluations=50))
+    assert result["status"] == "rolled_back" and result["new_invalid_observations"] == 1
+    assert np.array_equal(state.poses[2].matrix, before)
+
+
+def test_bundle_pruning_failure_is_atomic(scene, monkeypatch):
+    import vision3d.reconstruction.bundle as bundle
+    state = prepared_bundle(scene)
+    before = state.poses[2].matrix.copy()
+    xyz = np.array([l.xyz.copy() for l in state.landmarks.values()])
+    original = bundle.validate_landmarks
+    def prune_failure(*args, **kwargs):
+        if kwargs.get("prune"):
+            raise RuntimeError("injected pruning failure")
+        return original(*args, **kwargs)
+    monkeypatch.setattr(bundle, "validate_landmarks", prune_failure)
+    assert local_bundle_adjust(state, BundleOptions(max_points=100, max_evaluations=50))["status"] == "rolled_back"
+    assert np.array_equal(state.poses[2].matrix, before)
+    assert np.array_equal([l.xyz for l in state.landmarks.values()], xyz)
+
+
+def test_pnp_rejects_clustered_support(scene):
+    state, _, poses = scene
+    xyz = np.random.default_rng(9).uniform([-0.02, -0.02, 10], [0.02, 0.02, 11], (100, 3))
+    pose = poses[4]
+    pixels = project(xyz, state.views[4].camera, pose.rotation, pose.translation)
+    recovered, _, metrics = estimate_pnp(xyz, pixels, state.views[4].camera)
+    assert recovered is None and metrics["reason"] == "pnp_spatial_support_too_small"
+
+
+def test_duplicate_2d_to_multiple_landmark_associations_are_excluded(scene):
+    from vision3d.reconstruction.incremental import pnp_correspondences
+    state, xyz, _ = scene
+    state.landmarks = {i: Landmark(i, xyz[i], np.full(3, 0.5), {0: i, 1: i}) for i in range(30)}
+    state.tracks[0].observations[4] = 10
+    state.tracks[1].observations[4] = 10
+    ids, _, pixels = pnp_correspondences(state, 4)
+    assert 0 not in ids and 1 not in ids and 10 not in ids  # all three share feature 10
+    assert len(pixels) == 27
+
+
+def test_initial_selection_accounts_for_track_conflicts(scene):
+    state, _, _ = scene
+    tracks = {i: Track(i, {0: i, 2: i}) for i in range(100)}
+    pairs = {(0, 1): np.c_[np.arange(100), np.arange(100)], (0, 2): np.c_[np.arange(100), np.arange(100)]}
+    initial, metrics = select_initial(state.views, pairs, tracks=tracks)
+    assert initial[1:3] == (0, 2)
+    assert metrics[0]["reason"] == "too_few_conflict_free_tracks"
+
+
+def test_alternative_triangulation_pair_rejects_contaminating_observation(scene):
+    state, xyz, poses = scene
+    state.poses = {i: poses[i] for i in range(4)}
+    state.tracks = {0: Track(0, {i: 0 for i in range(4)})}
+    state.views[3].features.points[0] += [0, 15]
+    metrics = extend_landmarks(state)
+    assert metrics["new_landmarks"] == 1
+    assert 3 not in state.landmarks[0].observations
+    assert np.allclose(state.landmarks[0].xyz, xyz[0], atol=1e-4)
+
+
+def test_fifteen_camera_execution_and_final_geometry(scene):
+    state, xyz, poses = scene
+    for i in range(5, 15):
+        rotation = cv2.Rodrigues(np.array([0, 0.01 * i, 0]))[0]
+        center = np.array([0.1 * i, 0.15 * np.sin(i / 3), 0])
+        pose = Pose(rotation, -rotation @ center)
+        points = project(xyz, state.views[0].camera, rotation, pose.translation).astype(np.float32)
+        state.views[i] = replace(state.views[0], id=i, name=f"{i}.png", features=replace(state.views[0].features, points=points))
+        poses[i] = pose
+        for tid, track in state.tracks.items():
+            track.observations[i] = tid
+    state.poses = {0: poses[0], 1: poses[1]}
+    state.anchors = (0, 1)
+    state.registration_order = [0, 1]
+    extend_landmarks(state)
+    for i in range(14, 1, -1):
+        assert register(state, i)[0]
+        extend_landmarks(state)
+    metrics = validate_landmarks(state)
+    assert len(state.poses) == 15 and len(state.landmarks) == 100
+    assert metrics["observations"] == 1500 and metrics["invalid_observations"] == 0
+    assert metrics["rms_error_px"] < 1e-3
+
+
+def test_bundle_nonfinite_initial_state_is_rejected_without_mutation(scene):
+    state = prepared_bundle(scene)
+    state.landmarks[0].xyz[0] = np.nan
+    before = state.poses[2].matrix.copy()
+    result = local_bundle_adjust(state)
+    assert result["status"] == "rolled_back" and result["reason"] == "nonfinite_initial_state"
+    assert np.array_equal(before, state.poses[2].matrix)

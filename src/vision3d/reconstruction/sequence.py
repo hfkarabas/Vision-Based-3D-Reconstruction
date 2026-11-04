@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from vision3d.features import extract
+from vision3d.features.cache import cached_extract
 from vision3d.features.matching import match
 from vision3d.geometry import verify
 from vision3d.geometry.camera import Camera, approximate_camera, load_cameras
@@ -19,7 +19,7 @@ from vision3d.geometry.two_view import Quality, ReconstructionRejected
 from vision3d.io import iter_frames
 from vision3d.preprocessing import preprocess
 from .bundle import BundleOptions, local_bundle_adjust
-from .incremental import RegistrationQuality, extend_landmarks, initialize, landmark_diagnostics, pnp_correspondences, register, select_initial, validate_landmarks
+from .incremental import RegistrationQuality, extend_landmarks, initialize, landmark_diagnostics, measure_landmarks, register, registration_priority, select_initial, validate_landmarks
 from .pair import export_cloud, sample_colors, source_hash, write_json
 from .state import State, View, build_tracks
 
@@ -34,15 +34,17 @@ def load_quality(path):
         raise ValueError(f"Invalid quality configuration: {exc}") from exc
 
 
-def match_sequence(views, window, long_gap, quality, ratio):
+def match_sequence(views, window, long_gap, quality, ratio, seed=0):
     pairs, pair_metrics, edges = {}, [], []
+    start = perf_counter()
     ids = sorted(views)
     for i in ids:
         for j in ids:
             if j <= i or not (j - i <= window or (long_gap > 0 and j - i == long_gap)):
                 continue
             a, b = views[i], views[j]
-            result = match(a.features, b.features, ratio=ratio, mutual=True)
+            cv2.setRNGSeed((seed + i * 1009 + j * 9176) % 2147483647)
+            result = match(a.features, b.features, ratio=ratio, mutual=True, geometric=False)
             matches = result.consistent
             fi = np.array([m.queryIdx for m in matches], dtype=int)
             fj = np.array([m.trainIdx for m in matches], dtype=int)
@@ -58,15 +60,21 @@ def match_sequence(views, window, long_gap, quality, ratio):
                     if keep:
                         edges.append((float(m.distance), (i, m.queryIdx), (j, m.trainIdx)))
             pair_metrics.append({"pair": [i, j], **result.metrics(), "undistorted_verified": int(mask.sum()), "verification_status": status})
+    matching_seconds = perf_counter() - start
+    start = perf_counter()
     tracks, track_metrics = build_tracks([(a, b) for _, a, b in sorted(edges)])
+    track_metrics.update(matching_seconds=matching_seconds, track_construction_seconds=perf_counter() - start)
     return pairs, tracks, pair_metrics, track_metrics
 
 
 def reconstruct_sequence(input_path, output, camera=None, approximate=False, focal_px=None, fov_degrees=None,
                          detector="sift", max_dimension=1600, max_features=6000, ratio=0.75,
                          window=2, long_gap=4, max_images=30, min_registered=5, local_ba=False,
-                         quality_config=None, seed=0):
+                         quality_config=None, seed=0, feature_cache=None):
     start = perf_counter()
+    stages = {k: 0.0 for k in ("loading_preprocessing", "features", "matching", "tracks", "initial_pair",
+                               "registration", "triangulation", "bundle_adjustment", "validation", "export")}
+    feature_extraction_seconds = cache_hits = 0
     if not Path(input_path).is_dir():
         raise ValueError("Sequence input must be an ordered JPEG/PNG directory")
     if (camera is None) == (not approximate):
@@ -95,6 +103,9 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
     candidates = sorted((p for p in Path(input_path).iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png"}),
                         key=lambda p: (p.name.casefold(), p.name))
     source_order = {p.name: i for i, p in enumerate(candidates)}
+    if len(candidates) > max_images:
+        raise ValueError("Image limit exceeded; select a smaller directory or increase --max-images")
+    loading_start = perf_counter()
     for i, frame in enumerate(iter_frames(input_path, errors=skipped)):
         if i >= max_images:
             raise ValueError("Image limit exceeded; choose a smaller subset or increase --max-images (maximum 50)")
@@ -120,18 +131,24 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
         if model.approximate:
             warnings.warn(f"Approximate intrinsics for {path.name}; reduced reliability", stacklevel=2)
         image, resize = preprocess(frame.image, max_dimension)
-        features = extract(image, detector, max_features)
+        content_hash = source_hash(path)
+        feature_start = perf_counter()
+        features, cache_hit = cached_extract(image, content_hash, max_dimension, detector, max_features, feature_cache)
+        stages["features"] += perf_counter() - feature_start
+        feature_extraction_seconds += features.seconds
+        cache_hits += int(cache_hit)
         scaled = model.resized(image.shape[1], image.shape[0])
         with Image.open(path) as source:
             exif = source.getexif()
             timestamp = exif.get_ifd(34665).get(36867, exif.get(306))
         metadata = {**frame.metadata, "sequence_index": i, "source_order_index": source_order[path.name], "timestamp": timestamp,
-                    "sha256": source_hash(path), "resize": resize}
+                    "sha256": content_hash, "resize": resize, "feature_cache_hit": cache_hit}
         views[i] = View(i, path.name, scaled, features,
                         sample_colors(frame.image, features.points, resize), metadata)
         intrinsics.append({"image_id": i, "original": model.to_dict(), "processed": scaled.to_dict()})
     if len(views) < 2:
         raise ValueError("At least two readable images are required")
+    stages["loading_preprocessing"] = perf_counter() - loading_start - stages["features"]
     manifest = {"schema_version": 1, "created_utc": datetime.now(timezone.utc).isoformat(),
                 "inputs": [{"image_id": i, "name": v.name, **v.metadata} for i, v in views.items()],
                 "skipped_unreadable_inputs": skipped, "input_order": "case-insensitive filename, deterministic tie-break",
@@ -139,43 +156,63 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                 "config": {"detector": detector, "max_dimension": max_dimension, "max_features": max_features,
                            "ratio": ratio, "window": window, "long_gap": long_gap, "max_images": max_images,
                            "min_registered": min_registered, "local_ba": local_ba, "seed": seed,
-                           "opencv_threads": 1, "geometry": asdict(geometry), "registration": asdict(pnp_quality), "bundle": asdict(bundle)},
+                           "opencv_threads": 1, "feature_cache": str(Path(feature_cache).resolve()) if feature_cache else None,
+                           "geometry": asdict(geometry), "registration": asdict(pnp_quality), "bundle": asdict(bundle)},
                 "versions": {n: importlib.metadata.version(n) for n in ("vision3d", "numpy", "scipy", "opencv-contrib-python", "open3d")}}
     write_json(output / "manifest.json", manifest)
     write_json(output / "intrinsics.json", intrinsics)
-    pairs, tracks, pair_metrics, track_metrics = match_sequence(views, window, long_gap, geometry, ratio)
+    pairs, tracks, pair_metrics, track_metrics = match_sequence(views, window, long_gap, geometry, ratio, seed)
+    stages["matching"] = track_metrics["matching_seconds"]
+    stages["tracks"] = track_metrics["track_construction_seconds"]
     write_json(output / "pairs.json", pair_metrics)
     state = State(views, tracks)
+    phase_start = perf_counter()
     try:
-        initial, candidates = select_initial(views, pairs, geometry)
+        initial, candidates = select_initial(views, pairs, geometry, tracks, seed)
         initialize(state, initial, geometry)
     except ReconstructionRejected as exc:
-        write_json(output / "metrics.json", {"status": "rejected", "reason": str(exc), **exc.metrics, "tracks": track_metrics})
+        stages["initial_pair"] = perf_counter() - phase_start
+        write_json(output / "metrics.json", {"status": "rejected", "reason": str(exc), **exc.metrics, "tracks": track_metrics,
+                   "input_images": len(views), "registered_images": 0, "valid_landmarks": 0,
+                   "stage_seconds": stages, "runtime_seconds": perf_counter() - start,
+                   "feature_extraction_seconds": feature_extraction_seconds, "feature_cache_hits": cache_hits})
         raise
+    stages["initial_pair"] = perf_counter() - phase_start
     write_json(output / "initial_candidates.json", candidates)
     attempts, bundle_history = {i: [] for i in views}, []
     pending = set(views) - state.poses.keys()
+    last_attempt_revision = {}
     while pending:
-        progress = False
-        ranked = sorted(pending, key=lambda i: (-len(pnp_correspondences(state, i)[0]), i))
-        for i in ranked:
-            accepted, metrics = register(state, i, pnp_quality, geometry)
-            attempts[i].append(metrics)
-            if not accepted:
-                continue
-            pending.remove(i)
-            progress = True
-            state.history.append({"image_id": i, "pnp": metrics, **extend_landmarks(state, geometry)})
-            if local_ba:
-                bundle_history.append(local_bundle_adjust(state, bundle, geometry.max_reprojection_px,
-                    geometry.min_angle_degrees, geometry.max_distance))
-        if not progress:
+        phase_start = perf_counter()
+        revision = len(state.poses)
+        available = [i for i in pending if last_attempt_revision.get(i) != revision]
+        if not available:
             break
+        i = max(available, key=lambda image: registration_priority(state, image))
+        cv2.setRNGSeed((seed + i * 1009 + revision * 9176) % 2147483647)
+        accepted, metrics = register(state, i, pnp_quality, geometry)
+        metrics["map_revision"] = revision
+        attempts[i].append(metrics)
+        last_attempt_revision[i] = revision
+        stages["registration"] += perf_counter() - phase_start
+        if not accepted:
+            continue
+        pending.remove(i)
+        phase_start = perf_counter()
+        state.history.append({"image_id": i, "pnp": metrics, **extend_landmarks(state, geometry)})
+        stages["triangulation"] += perf_counter() - phase_start
+        if local_ba:
+            phase_start = perf_counter()
+            bundle_history.append(local_bundle_adjust(state, bundle, geometry.max_reprojection_px,
+                geometry.min_angle_degrees, geometry.max_distance))
+            stages["bundle_adjustment"] += perf_counter() - phase_start
+    phase_start = perf_counter()
     validation_args = {"min_angle_degrees": geometry.min_angle_degrees, "max_distance": geometry.max_distance}
     current_quality = validate_landmarks(state, geometry.max_reprojection_px, **validation_args)
     before_final_ba = bundle_history[-1].get("before", current_quality) if bundle_history else current_quality
     final_quality = validate_landmarks(state, geometry.max_reprojection_px, prune=True, **validation_args)
     after_final_ba = validate_landmarks(state, geometry.max_reprojection_px, **validation_args)
+    stages["validation"] = perf_counter() - phase_start
     visibility = {i: sum(i in l.observations for l in state.landmarks.values()) for i in state.poses}
     weak = sorted(i for i, count in visibility.items() if count < pnp_quality.min_inliers)
     metrics = {"status": "success" if len(state.poses) >= min_registered and len(state.landmarks) >= geometry.min_points and not weak else "partial",
@@ -184,6 +221,7 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                "tracks": track_metrics, "valid_landmarks": len(state.landmarks), "weakly_supported_images": weak,
                "before_final_ba": before_final_ba, "after_final_ba": after_final_ba,
                "final_pruning": final_quality, "bundle_adjustment": bundle_history, "incremental_steps": state.history}
+    phase_start = perf_counter()
     write_json(output / "poses.json", [{"image_id": i, "name": v.name, "status": "registered" if i in state.poses else "rejected",
                 "world_to_camera": state.poses[i].matrix.tolist() if i in state.poses else None,
                 "center_world": state.poses[i].center.tolist() if i in state.poses else None,
@@ -191,8 +229,9 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
     write_json(output / "tracks.json", [{"id": t.id, "observations": t.observations,
                 "landmark_id": t.id if t.id in state.landmarks else None} for t in tracks.values()])
     landmarks = [state.landmarks[i] for i in sorted(state.landmarks)]
+    measurements = measure_landmarks(state)
     write_json(output / "landmarks.json", [{"id": l.id, "track_id": l.id, "xyz": l.xyz.tolist(), "color": l.color.tolist(),
-                "observations": l.observations, **landmark_diagnostics(state, l)} for l in landmarks])
+                "observations": l.observations, **landmark_diagnostics(state, l, measurements)} for l in landmarks])
     np.savez_compressed(output / "features.npz", **{f"image_{i}_points": v.features.points for i, v in views.items()})
     if landmarks:
         export_cloud(output / "sparse.ply", [l.xyz for l in landmarks], [l.color for l in landmarks])
@@ -200,7 +239,9 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
     metrics["per_image"] = [{"image_id": i, "name": v.name, "features": v.features.count,
                 "feature_seconds": v.features.seconds, "status": "registered" if i in state.poses else "rejected",
                 "visible_landmarks": sum(i in l.observations for l in landmarks)} for i, v in views.items()]
-    metrics.update(runtime_seconds=perf_counter() - start, peak_memory_bytes=None,
+    stages["export"] = perf_counter() - phase_start
+    metrics.update(runtime_seconds=perf_counter() - start, peak_memory_bytes=None, stage_seconds=stages,
+                   feature_extraction_seconds=feature_extraction_seconds, feature_cache_hits=cache_hits,
                    memory_basis="Windows process lifetime peak working set including imports; null when unavailable")
     try:
         import psutil

@@ -11,6 +11,7 @@
     "min_inliers": 20,
     "min_inlier_ratio": 0.4,
     "max_error_px": 2.0,
+    "min_image_coverage": 0.01,
     "iterations": 2000
   },
   "bundle": {
