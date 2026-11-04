@@ -125,6 +125,7 @@ def test_stable_cli_configuration(tmp_path):
     folder = images(tmp_path / "images", 6)
     command = support.reconstruction_command(folder, tmp_path / "camera.json", tmp_path / "out")
     assert "reconstruct-sequence" in command and "--local-ba" in command
+    assert "--refine-points" in command
     assert "--recovery-pairs" not in command and "--joint-ba" not in command
     assert command[-1] == "5"
     assert command[command.index("--input") + 1] == str(folder.resolve())

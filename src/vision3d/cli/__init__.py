@@ -146,6 +146,7 @@ def main(argv=None):
     sequence.add_argument("--feature-cache", help="Content/configuration keyed numeric feature cache directory")
     sequence.add_argument('--recovery-pairs', type=int, default=0, help='Additional verified appearance-ranked pairs, budget 0..30')
     sequence.add_argument('--joint-ba', action='store_true', help='Final bounded joint map refinement')
+    sequence.add_argument('--refine-points', action='store_true', help='Fixed-camera refinement of verified multiview landmarks')
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
     if selected == "reconstruct-sequence":

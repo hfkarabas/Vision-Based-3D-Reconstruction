@@ -106,12 +106,12 @@ def allocate_run(base):
 
 
 def reconstruction_command(folder, camera, output):
-    # Same stable CLI defaults, with established bounded local BA enabled.
+    # Stable registration/BA; independently checked final fixed-camera point refinement.
     # The demo supports pairs as well as longer sequences; a pair requires two registrations.
     minimum = min(5, len(supported_images(folder)))
     return [sys.executable, "-u", "-m", "vision3d.cli", "reconstruct-sequence",
             "--input", str(Path(folder).resolve()), "--camera", str(Path(camera).resolve()),
-            "--output", str(Path(output).resolve()), "--local-ba", "--min-registered", str(minimum)]
+            "--output", str(Path(output).resolve()), "--local-ba", "--refine-points", "--min-registered", str(minimum)]
 
 
 @dataclass(frozen=True)
@@ -157,7 +157,7 @@ def artifact_stage(output):
         except (OSError, ValueError):
             return False
     if complete("initial_candidates.json"):
-        return "Initial pair selected; registration / triangulation / BA running"
+        return "Initial pair selected; registration / triangulation / optimization running"
     if complete("pairs.json"):
         return "Geometric matches saved; selecting initial pair"
     if complete("manifest.json"):

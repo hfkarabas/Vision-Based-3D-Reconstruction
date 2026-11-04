@@ -64,7 +64,7 @@ class DemoApp:
         self.button(choices, "Open Previous Result", self.previous).pack(side="left", padx=8)
         self.start_button = self.button(choices, "Start Reconstruction", self.start)
         self.start_button.pack(side="left")
-        ttk.Label(panel, text="Stable SIFT configuration · bounded local BA · experimental modes off").grid(
+        ttk.Label(panel, text="Stable SIFT · local BA · fixed-camera point refinement · experimental pose modes off").grid(
             row=4, column=0, columnspan=3, sticky="w")
         ttk.Separator(panel).grid(row=5, column=0, columnspan=3, sticky="ew", pady=12)
         ttk.Label(panel, textvariable=self.stage, wraplength=700).grid(row=6, column=0, columnspan=3, sticky="w")
@@ -195,6 +195,7 @@ class DemoApp:
                     "--status-file", str(self.viewer_status)], stdout=log, stderr=subprocess.STDOUT, **child_options())
             self.view_button.configure(state="disabled")
             self.note("Starting separate Open3D viewer; loading the saved PLY.")
+            self.note("All exported points are displayed. R resets camera-aligned view; C toggles camera outlines; A toggles axes when camera metadata is available.")
             self.viewer_reported = False
         except (OSError, ValueError) as exc:
             self.error(f"Could not start 3D view: {exc}")
