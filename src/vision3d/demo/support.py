@@ -231,3 +231,13 @@ def open_directory(path):
         os.startfile(str(path))
     else:
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)], **child_options())
+
+
+def write_camera_visibility(path, visible):
+    """Atomically send a desired state; no renderer or reconstruction runs here."""
+    if not isinstance(visible, bool):
+        raise ValueError("Camera visibility must be boolean")
+    path = Path(path)
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps({'show_cameras': visible, 'request_id': uuid.uuid4().hex}), encoding='utf-8')
+    temporary.replace(path)

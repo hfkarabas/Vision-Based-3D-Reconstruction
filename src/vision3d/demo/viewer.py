@@ -2,6 +2,56 @@
 import argparse
 import json
 from pathlib import Path
+from time import perf_counter
+
+
+class OverlayToggle:
+    """One visibility state shared by keyboard and desktop controls."""
+    def __init__(self, geometry, active, reset, changed=lambda: None):
+        self.geometry, self.active, self.reset, self.changed = geometry, active, reset, changed
+        self.shown = False
+
+    def set_visible(self, vis, visible):
+        if not isinstance(visible, bool):
+            raise ValueError("Overlay visibility must be boolean")
+        if visible == self.shown:
+            return False
+        operation = vis.add_geometry if visible else vis.remove_geometry
+        if operation(self.geometry, reset_bounding_box=True) is False:
+            raise RuntimeError("Open3D could not update camera/axis visibility")
+        self.shown = visible
+        self.active[id(self.geometry)] = visible
+        self.reset(vis)
+        self.changed()
+        return False
+
+    def toggle(self, vis):
+        return self.set_visible(vis, not self.shown)
+
+
+class CameraControl:
+    """Read only changed desktop commands, at most ten times per second."""
+    def __init__(self, path, overlay):
+        self.path, self.overlay = Path(path), overlay
+        self.last_text, self.next_poll = None, 0.0
+
+    def poll(self, vis):
+        now = perf_counter()
+        if now < self.next_poll:
+            return False
+        self.next_poll = now + .1
+        try:
+            text = self.path.read_text(encoding='utf-8')
+            if text == self.last_text:
+                return False
+            value = json.loads(text)['show_cameras']
+            if not isinstance(value, bool):
+                return False
+            self.overlay.set_visible(vis, value)
+            self.last_text = text
+        except (OSError, ValueError, KeyError, TypeError):
+            pass  # Missing or in-progress command files do not disrupt rendering.
+        return False
 
 
 def load_cloud(path):
@@ -22,6 +72,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Interactive viewer for an exported sparse point cloud")
     parser.add_argument("--ply", required=True)
     parser.add_argument("--status-file", required=True)
+    parser.add_argument("--control-file", help="Optional desktop camera-visibility commands")
     args = parser.parse_args(argv)
     status_file = Path(args.status_file)
     def status(value, **extra):
@@ -43,6 +94,13 @@ def main(argv=None):
         from .view_geometry import camera_view, camera_frustum, load_context
         import numpy as np
         context_status = "default_view_no_camera_metadata"
+        cameras = axes_toggle = None
+        def open_status():
+            status("open", points=len(cloud.points), ply=str(Path(args.ply).resolve()), viewpoint=context_status,
+                   cameras_available=cameras is not None, cameras_visible=bool(cameras and cameras.shown),
+                   axes_visible=bool(axes_toggle and axes_toggle.shown),
+                   display_filter="none; every exported point is displayed",
+                   controls="Show Cameras: C or desktop checkbox; R reset; A coordinate axes (when metadata available)")
         try:
             poses = load_context(args.ply)
             view = camera_view(np.asarray(cloud.points), [p['world_to_camera'] for p in poses])
@@ -69,25 +127,18 @@ def main(argv=None):
             frustums.paint_uniform_color([.25, .25, .25])
             bounds = np.vstack([np.asarray(cloud.points), vertices, [[0, 0, 0]]])
             context_center = (bounds.min(axis=0) + bounds.max(axis=0)) / 2
-            def toggle(geometry):
-                shown = False
-                def callback(vis):
-                    nonlocal shown
-                    if shown: vis.remove_geometry(geometry, reset_bounding_box=True)
-                    else: vis.add_geometry(geometry, reset_bounding_box=True)
-                    shown = not shown
-                    active_overlays[id(geometry)] = shown
-                    reset(vis)
-                    return False
-                return callback
-            visualizer.register_key_callback(ord('C'), toggle(frustums))
-            visualizer.register_key_callback(ord('A'), toggle(axes))
+            cameras = OverlayToggle(frustums, active_overlays, reset, open_status)
+            axes_toggle = OverlayToggle(axes, active_overlays, reset, open_status)
+            visualizer.register_key_callback(ord('C'), cameras.toggle)
+            visualizer.register_key_callback(ord('A'), axes_toggle.toggle)
+            if args.control_file:
+                control = CameraControl(args.control_file, cameras)
+                visualizer.register_animation_callback(control.poll)
         except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError):
             pass  # Standalone colored PLY files remain viewable without camera context.
         visualizer.poll_events()
         visualizer.update_renderer()
-        status("open", points=len(cloud.points), ply=str(Path(args.ply).resolve()), viewpoint=context_status,
-               display_filter="none; every exported point is displayed", controls="R reset; C camera outlines; A coordinate axes (when metadata available)")
+        open_status()
         visualizer.run()
         status("closed", points=len(cloud.points))
     except Exception as exc:

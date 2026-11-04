@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .support import (allocate_run, child_options, open_directory, read_result,
-                      repository_root, resolve_castle, run_job, supported_images)
+                      repository_root, resolve_castle, run_job, supported_images, write_camera_visibility)
 
 
 class DemoApp:
@@ -44,6 +44,9 @@ class DemoApp:
         self.run_folder = None
         self.viewer = None
         self.viewer_status = None
+        self.viewer_control = None
+        self.camera_pending = None
+        self.show_cameras = tk.BooleanVar(value=False)
         self.closing = False
         self.close_started = None
         self.actions = []
@@ -77,6 +80,9 @@ class DemoApp:
         self.view_button.pack(side="left")
         self.output_button = ttk.Button(result_buttons, text="Open Output Folder", command=self.open_output, state="disabled")
         self.output_button.pack(side="left", padx=8)
+        self.camera_checkbox = ttk.Checkbutton(result_buttons, text="Show Cameras (C)", variable=self.show_cameras,
+                                               command=self.set_camera_visibility, state="disabled")
+        self.camera_checkbox.pack(side="left", padx=8)
         ttk.Label(panel, text="3D view: left-drag rotates · wheel zooms · Ctrl + left-drag pans").grid(
             row=11, column=0, columnspan=3, sticky="w", pady=8)
         self.log = tk.Text(panel, height=9, wrap="word", background="white", foreground="black",
@@ -190,15 +196,29 @@ class DemoApp:
                 raise ValueError(f"PLY file is missing: {self.result.ply}")
             session = allocate_run(self.output_base / "viewers")
             self.viewer_status = session / "status.json"
+            self.viewer_control = session / "control.json"
+            self.show_cameras.set(False)
+            self.camera_pending = None
             with (session / "viewer.log").open("w", encoding="utf-8") as log:
                 self.viewer = subprocess.Popen([sys.executable, "-m", "vision3d.demo.viewer", "--ply", str(self.result.ply),
-                    "--status-file", str(self.viewer_status)], stdout=log, stderr=subprocess.STDOUT, **child_options())
+                    "--status-file", str(self.viewer_status), "--control-file", str(self.viewer_control)], stdout=log, stderr=subprocess.STDOUT, **child_options())
             self.view_button.configure(state="disabled")
             self.note("Starting separate Open3D viewer; loading the saved PLY.")
             self.note("All exported points are displayed. R resets camera-aligned view; C toggles camera outlines; A toggles axes when camera metadata is available.")
             self.viewer_reported = False
         except (OSError, ValueError) as exc:
             self.error(f"Could not start 3D view: {exc}")
+
+    def set_camera_visibility(self):
+        if self.viewer is None or self.viewer.poll() is not None or self.closing:
+            return
+        try:
+            desired = self.show_cameras.get()
+            write_camera_visibility(self.viewer_control, desired)
+            self.camera_pending = desired
+        except (OSError, ValueError) as exc:
+            self.camera_pending = None
+            self.error(f"Could not change camera visibility: {exc}")
 
     def poll(self):
         while True:
@@ -242,6 +262,12 @@ class DemoApp:
             if status.get("status") == "open" and not self.viewer_reported:
                 self.note(f"Open3D view opened: {status['points']} actual colored PLY points.")
                 self.viewer_reported = True
+            if status.get("status") == "open" and not self.closing:
+                self.camera_checkbox.configure(state="normal" if status.get("cameras_available") else "disabled")
+                visible = bool(status.get("cameras_visible"))
+                if self.camera_pending is None or self.camera_pending == visible:
+                    self.show_cameras.set(visible)
+                    self.camera_pending = None
             if self.viewer.poll() is not None:
                 if not self.closing:
                     if self.viewer.returncode:
@@ -249,6 +275,9 @@ class DemoApp:
                     else:
                         self.note("3D viewer closed. Reconstruction remains available.")
                 self.viewer = None
+                self.show_cameras.set(False)
+                self.camera_pending = None
+                self.camera_checkbox.configure(state="disabled")
                 if not self.closing:
                     self.busy(self.worker is not None)
         if self.closing:
@@ -269,6 +298,7 @@ class DemoApp:
         self.close_started = perf_counter()
         self.stop.set()
         self.busy(True)
+        self.camera_checkbox.configure(state="disabled")
         self.stage.set("Closing child processes…")
         if self.viewer is not None and self.viewer.poll() is None:
             self.viewer.terminate()
