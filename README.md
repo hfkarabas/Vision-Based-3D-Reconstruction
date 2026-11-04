@@ -1,7 +1,7 @@
 # Vision-Based-3D-Reconstruction
 Camera-independent 3D reconstruction from real-world images and videos using computer vision and Structure-from-Motion.
 
-This Computer Engineering graduation project aims to produce usable 3D assets from photographs or video without ground-truth camera poses, Unity, simulators, or COLMAP as its processing engine. The current implementation covers input, preprocessing, features, matching and **calibrated two-view sparse reconstruction**. It does not yet implement full multi-view SfM, bundle adjustment, dense reconstruction or meshing.
+This Computer Engineering graduation project aims to produce usable 3D assets from photographs or video without ground-truth camera poses, Unity, simulators, or COLMAP as its processing engine. The current implementation covers input, preprocessing, features, matching, two-view reconstruction and **incremental sparse multi-view SfM with bounded local bundle adjustment**. Dense reconstruction, meshing, texturing and an application GUI are not implemented.
 
 ## Setup (Windows / Python 3.12)
 
@@ -46,17 +46,17 @@ Pillow applies EXIF orientation before preprocessing. Metrics retain raw source 
 
 ## Architecture
 
-The installable `src/vision3d` package contains `io` (streamed source frames), `preprocessing` (validation/resize/quality), `features` (SIFT/ORB and staged matching), `geometry` (camera models, fundamental/essential geometry and triangulation), `reconstruction` (pair orchestration and cloud export), and `cli`. Unit and integration tests live in `tests/`. Camera JSON examples live in `configs/`; `scripts/motorcycle_experiment.py` reproduces the real reconstruction and evaluates pose separately. Local `datasets/`, `outputs/`, and `experiments/` are ignored.
+The installable `src/vision3d` package contains `io` (streamed source frames), `preprocessing` (validation/resize/quality), `features` (SIFT/ORB and staged matching), `geometry` (camera models, fundamental/essential geometry and triangulation), `reconstruction` (pair/sequence orchestration, tracks/state, incremental registration, bounded BA and export), and `cli`. Unit and integration tests live in `tests/`. Camera/quality JSON examples live in `configs/`; `scripts/motorcycle_experiment.py` and `scripts/sceaux_experiment.py` reproduce real experiments. Local `datasets/`, `outputs/`, and `experiments/` are ignored.
 
 Only two processed images and their feature sets are retained for consecutive matching. Per-image/pair metric records grow with input length. CPU brute-force matching grows with the product of feature counts; limits matter on 16 GB machines. Diagnostic canvases can be large for high-resolution input.
 
 ## Validation and limitations
 
-See [the matching report](docs/TASK01_REPORT.md) and [the two-view reconstruction report](docs/TASK02_REPORT.md) for automated tests, real photographs, source/permission details and measured results. No data or generated images are committed.
+See [the matching report](docs/TASK01_REPORT.md), [the two-view report](docs/TASK02_REPORT.md) and [the incremental SfM report](docs/TASK03_REPORT.md) for automated tests, real photographs, source/permission details and measured results. No data or generated images are committed.
 
 RANSAC can fit misleading geometry for moving subjects, planar scenes, pure rotation, repeated texture, or small baselines. High match counts are not evidence of usable camera geometry or successful reconstruction. Blur scores are descriptive and do not automatically reject frames. Truncated videos may appear as early decoder EOF; codec support depends on the OpenCV build. Failed runs may leave partial diagnostics. Timing excludes interpreter startup and final JSON/CSV serialization and is not a controlled benchmark. The target i5-11400H/GTX 1650 machine has not been separately tested.
 
-Next stages: static unrectified camera validation and persistent feature tracks, then incremental multi-view SfM with bundle adjustment. Dense reconstruction, meshing, OBJ/GLB export, adaptive frame selection and interactive visualization are later work.
+Next stages: broader camera/dataset validation, track refinement and stronger local optimization coverage. Dense reconstruction, meshing, OBJ/GLB export, adaptive frame selection and interactive visualization are later work.
 
 ## Reconstruct two photographs
 
@@ -93,3 +93,26 @@ Reproduce the small calibrated real-image experiment:
 ```
 
 The script downloads only two checksum-verified Middlebury Motorcycle images (~1.3 MB) via scikit-image's official repository. Reference stereo pose is used only after reconstruction for evaluation, never as processing input. The default run produced 859 valid colored points with 0.087 px median reprojection error. For a local Open3D viewer, load the exported file with `open3d.io.read_point_cloud` and pass it to `open3d.visualization.draw_geometries`; this requires a graphical desktop.
+
+## Reconstruct an ordered photograph sequence
+
+```powershell
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence --input datasets/scene --camera configs/camera.json --output outputs/scene --local-ba
+.venv\Scripts\vision3d.exe reconstruct-sequence --input datasets/scene --camera configs/camera.json --quality-config configs/sequence_quality.json --window 2 --long-gap 4 --max-features 6000 --max-dimension 1600 --output outputs/scene-custom
+# Reproduce six genuine unrectified Castle photographs and separate pair-mode checks:
+.venv\Scripts\python.exe scripts/sceaux_experiment.py --download --local-ba --output outputs/sceaux-experiment
+```
+
+Inputs are JPEG/PNG files sorted deterministically by filename, not EXIF capture time. Original filename order, capture timestamps when present (without inventing a timezone), EXIF orientation, hashes and resize transforms are retained separately from registration order. Corrupt images are skipped and listed. Use one shared camera JSON or `{"images": {"photo01.jpg": {...camera fields...}, "photo02.jpg": {...}}}` with exact filenames. Dimensions must describe the original EXIF-oriented images. Approximation is also explicit for sequences through `--approximate-intrinsics` and one focal/FOV assumption, with warnings and metadata as for pairs.
+
+Default matching covers neighboring offsets 1 and 2 plus offset 4. `--window` changes the neighboring range; `--long-gap 0` disables extra links. Matches undergo reciprocal Lowe filtering and fundamental RANSAC in undistorted virtual pixels before entering tracks. Conflict-free track merging allows only one feature per image. Stable observation identifiers are `(image_id, keypoint row index)`; track/landmark links and keypoint arrays are exported. Geometrically valid initial pairs are scored using retained point count, parallax, cheirality and filter survival. Later cameras use tracked 2D–3D correspondences with PnP RANSAC and LM refinement, never chained pairwise translations. Unregisterable images are deferred until new landmarks become available, then rejected if no progress remains; their exported pose is null.
+
+One landmark belongs to each triangulated track. The widest registered ray pair seeds new geometry, and all additional observations must pass depth/reprojection checks. Final retained points need at least two accepted views, >=1° triangulation angle and finite bounded coordinates. Camera axes and world-to-camera poses follow the two-view convention. The first selected anchor becomes the world reference, which may differ from input image 0. Absolute scale remains unknown.
+
+`--local-ba` enables SciPy sparse-Jacobian `soft_l1` optimization after successful registrations. Defaults: at most five cameras including two fixed initial-pair anchors, 400 landmarks visible in both anchors, and 30 function evaluations. Intrinsics remain fixed. Holding both initial poses fixes gauge and baseline scale but also preserves initial-pair pose bias. Updates are transactional: robust local cost and global RMS must not increase, geometric invalidity must not increase, and camera/point movement bounds must pass. Other proposals roll back. A finite budget-limited solution can be accepted if every quality check passes; convergence status is reported separately.
+
+`configs/sequence_quality.json` demonstrates adjustable `geometry`, `registration` and `bundle` settings. Defaults preserve the two-view 1px virtual RANSAC, 2px reprojection and 1° angle gates; PnP requires 20 inliers and 40% support. Sequence resource bounds are 30 images by default (configurable 2–50), at most 20,000 requested features/image, and explicit BA limits. These are small-sequence limits, not a claim of unbounded SfM scalability. `--min-registered` defaults to five; fewer registered images produce partial status and exit 3. It is an explicit user target, not an automatic threshold reduction. Success also requires sufficient valid landmarks and final support for registered cameras.
+
+Sequence outputs: `sparse.ply`, `poses.json`, `intrinsics.json`, `tracks.json`, `landmarks.json` (per-view errors/depths and angle), `features.npz` (coordinates indexed by stable feature IDs), `pairs.json`, `initial_candidates.json`, `manifest.json`, `metrics.json`, and `overview.png`. Open3D reloads exported PLY files to check coordinates and colors. Exit codes remain 0 success, 3 geometric rejection/partial reconstruction and 2 invalid input or processing failure. No geometry is invented for gaps. There is no reconstruction resume/import command yet.
+
+Six Sceaux Castle photographs registered successfully in one shared scene. The upstream sample contains published K values but no distortion coefficients or reference poses; zero distortion is an explicit assumption. Its copyright notice names Pierre Moulon, and no explicit redistribution license is provided. The experiment uses the upstream SfM testing sample locally and does not redistribute its images. See the report for hashes, source URLs, calibrated-versus-approximate validation, BA acceptance/rollback results and exact performance measurements.

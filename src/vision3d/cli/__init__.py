@@ -127,8 +127,38 @@ def main(argv=None):
     pair.add_argument("--ratio", type=float, default=0.75)
     pair.add_argument("--seed", type=int, default=0)
     pair.add_argument("--preview", action="store_true", help="Save a static colored point cloud preview")
+    sequence = sub.add_parser("reconstruct-sequence", help="Track-based incremental multi-view SfM")
+    sequence.add_argument("--input", required=True, dest="input_path")
+    sequence.add_argument("--output", required=True)
+    calibration = sequence.add_mutually_exclusive_group(required=True)
+    calibration.add_argument("--camera")
+    calibration.add_argument("--approximate-intrinsics", action="store_true", dest="approximate")
+    assumption = sequence.add_mutually_exclusive_group()
+    assumption.add_argument("--focal-px", type=float)
+    assumption.add_argument("--fov-degrees", type=float)
+    sequence.add_argument("--detector", choices=["sift", "orb"], default="sift")
+    for name, default in (("max-dimension", 1600), ("max-features", 6000), ("window", 2),
+                          ("long-gap", 4), ("max-images", 30), ("min-registered", 5), ("seed", 0)):
+        sequence.add_argument(f"--{name}", type=int, default=default)
+    sequence.add_argument("--ratio", type=float, default=0.75)
+    sequence.add_argument("--local-ba", action="store_true")
+    sequence.add_argument("--quality-config", help="JSON geometry, registration and bundle thresholds")
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
+    if selected == "reconstruct-sequence":
+        from vision3d.geometry.two_view import ReconstructionRejected
+        from vision3d.reconstruction.sequence import reconstruct_sequence
+        try:
+            result = reconstruct_sequence(**args)
+        except ReconstructionRejected as exc:
+            parser.exit(3, f"reconstruction rejected: {exc}; diagnostics: {args['output']}\n")
+        except (ValueError, OSError, cv2.error) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps({"output": str(args["output"]), "registered_images": result["registered_images"],
+                          "valid_landmarks": result["valid_landmarks"], "status": result["status"]}))
+        if result["status"] != "success":
+            parser.exit(3, "partial reconstruction: camera or landmark quality target not reached\n")
+        return
     if selected == "reconstruct-pair":
         from vision3d.geometry.two_view import ReconstructionRejected
         from vision3d.reconstruction.pair import reconstruct_pair

@@ -1,0 +1,6 @@
+{
+  "width": 2832, "height": 2128,
+  "fx": 2905.88, "fy": 2905.88, "cx": 1416.0, "cy": 1064.0,
+  "source": "OpenMVG ImageDataset_SceauxCastle images/K.txt, revision fde7f5faba555e3c54700477c304488613346a19",
+  "assumptions": "Published K; no lens coefficients supplied, zero distortion assumed. EXIF orientation=1. Calibration provenance/accuracy not independently measured."
+}
