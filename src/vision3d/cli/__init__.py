@@ -111,8 +111,36 @@ def main(argv=None):
     command.add_argument("--confidence", type=float, default=0.99)
     command.add_argument("--mutual", action="store_true")
     command.add_argument("--no-blur", action="store_false", dest="score_blur")
+    pair = sub.add_parser("reconstruct-pair", help="Calibrated sparse two-view reconstruction")
+    pair.add_argument("--image1", required=True)
+    pair.add_argument("--image2", required=True)
+    calibration = pair.add_mutually_exclusive_group(required=True)
+    calibration.add_argument("--camera")
+    calibration.add_argument("--approximate-intrinsics", action="store_true", dest="approximate")
+    assumption = pair.add_mutually_exclusive_group()
+    assumption.add_argument("--focal-px", type=float)
+    assumption.add_argument("--fov-degrees", type=float)
+    pair.add_argument("--output", required=True)
+    pair.add_argument("--detector", choices=["sift", "orb"], default="sift")
+    pair.add_argument("--max-dimension", type=int, default=1600)
+    pair.add_argument("--max-features", type=int, default=6000)
+    pair.add_argument("--ratio", type=float, default=0.75)
+    pair.add_argument("--seed", type=int, default=0)
+    pair.add_argument("--preview", action="store_true", help="Save a static colored point cloud preview")
     args = vars(parser.parse_args(argv))
-    args.pop("command")
+    selected = args.pop("command")
+    if selected == "reconstruct-pair":
+        from vision3d.geometry.two_view import ReconstructionRejected
+        from vision3d.reconstruction.pair import reconstruct_pair
+        try:
+            result = reconstruct_pair(**args)
+        except ReconstructionRejected as exc:
+            parser.exit(3, f"reconstruction rejected: {exc}; diagnostics: {args['output']}\n")
+        except (ValueError, OSError, cv2.error) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps({"output": str(args["output"]), "valid_points": result["valid_points"],
+                          "median_reprojection_error_px": result["median_reprojection_error_px"]}))
+        return
     if args["output"] is None:
         args["output"] = Path("outputs") / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     try:

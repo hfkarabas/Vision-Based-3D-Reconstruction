@@ -1,0 +1,14 @@
+{
+  "camera1": {
+    "width": 741, "height": 500,
+    "fx": 994.978, "fy": 994.978, "cx": 311.193, "cy": 254.877,
+    "source": "scikit-image stereo_motorcycle documentation / Middlebury 2014",
+    "assumptions": "Published quarter-resolution rectified pinhole calibration; distortion removed by dataset rectification"
+  },
+  "camera2": {
+    "width": 741, "height": 500,
+    "fx": 994.978, "fy": 994.978, "cx": 342.279, "cy": 254.877,
+    "source": "scikit-image stereo_motorcycle documentation / Middlebury 2014; cx2=cx1+31.086",
+    "assumptions": "Published quarter-resolution rectified pinhole calibration; distortion removed by dataset rectification"
+  }
+}
