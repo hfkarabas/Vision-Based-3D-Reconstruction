@@ -39,7 +39,7 @@ def main():
         if args.case and case["name"] not in args.case:
             continue
         output = args.output / case["name"]
-        defaults = suite["defaults"]
+        defaults = {**suite["defaults"], **case.get('settings', {})}
         command = [sys.executable, "-m", "vision3d.cli", "reconstruct-sequence", "--input", str(root / case["input"]),
                    "--output", str(output)]
         if not args.baseline_source:
@@ -51,6 +51,10 @@ def main():
             command += ["--" + key.replace("_", "-"), str(defaults[key])]
         if defaults["local_ba"]:
             command += ["--local-ba"]
+        if defaults.get('recovery_pairs', 0):
+            command += ['--recovery-pairs', str(defaults['recovery_pairs'])]
+        if defaults.get('joint_ba', False):
+            command += ['--joint-ba']
         if "camera" in case:
             command += ["--camera", str(root / case["camera"])]
         else:

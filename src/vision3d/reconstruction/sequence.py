@@ -22,6 +22,7 @@ from .bundle import BundleOptions, local_bundle_adjust
 from .incremental import RegistrationQuality, extend_landmarks, initialize, landmark_diagnostics, measure_landmarks, register, registration_priority, select_initial, validate_landmarks
 from .pair import export_cloud, sample_colors, source_hash, write_json
 from .state import State, View, build_tracks
+from .graph import appearance_signatures, components, discovery_candidate
 
 
 def load_quality(path):
@@ -34,43 +35,61 @@ def load_quality(path):
         raise ValueError(f"Invalid quality configuration: {exc}") from exc
 
 
-def match_sequence(views, window, long_gap, quality, ratio, seed=0):
+def match_sequence(views, window, long_gap, quality, ratio, seed=0, recovery_pairs=0):
     pairs, pair_metrics, edges = {}, [], []
     start = perf_counter()
     ids = sorted(views)
+    def process(i, j, discovery_distance=None):
+        a, b = views[i], views[j]
+        cv2.setRNGSeed((seed + i * 1009 + j * 9176) % 2147483647)
+        result = match(a.features, b.features, ratio=ratio, mutual=True, geometric=False)
+        matches = result.consistent
+        fi = np.array([m.queryIdx for m in matches], dtype=int)
+        fj = np.array([m.trainIdx for m in matches], dtype=int)
+        focal = min(a.camera.fx, a.camera.fy, b.camera.fx, b.camera.fy)
+        # Existing fundamental verifier, now on undistorted shared virtual pixels.
+        _, mask, status = verify(a.camera.normalized(a.features.points[fi]) * focal,
+                                 b.camera.normalized(b.features.points[fj]) * focal,
+                                 threshold=quality.essential_threshold_px, confidence=quality.confidence)
+        correspondences = np.c_[fi[mask], fj[mask]]
+        if len(correspondences) >= quality.min_inliers:
+            pairs[i, j] = correspondences
+            for m, keep in zip(matches, mask):
+                if keep:
+                    edges.append((float(m.distance), (i, m.queryIdx), (j, m.trainIdx)))
+        pair_metrics.append({"pair": [i, j], **result.metrics(), "undistorted_verified": int(mask.sum()),
+                             "verification_status": status, "discovery_distance": discovery_distance})
     for i in ids:
         for j in ids:
-            if j <= i or not (j - i <= window or (long_gap > 0 and j - i == long_gap)):
-                continue
-            a, b = views[i], views[j]
-            cv2.setRNGSeed((seed + i * 1009 + j * 9176) % 2147483647)
-            result = match(a.features, b.features, ratio=ratio, mutual=True, geometric=False)
-            matches = result.consistent
-            fi = np.array([m.queryIdx for m in matches], dtype=int)
-            fj = np.array([m.trainIdx for m in matches], dtype=int)
-            focal = min(a.camera.fx, a.camera.fy, b.camera.fx, b.camera.fy)
-            # Existing fundamental verifier, now on undistorted shared virtual pixels.
-            _, mask, status = verify(a.camera.normalized(a.features.points[fi]) * focal,
-                                     b.camera.normalized(b.features.points[fj]) * focal,
-                                     threshold=quality.essential_threshold_px, confidence=quality.confidence)
-            correspondences = np.c_[fi[mask], fj[mask]]
-            if len(correspondences) >= quality.min_inliers:
-                pairs[i, j] = correspondences
-                for m, keep in zip(matches, mask):
-                    if keep:
-                        edges.append((float(m.distance), (i, m.queryIdx), (j, m.trainIdx)))
-            pair_metrics.append({"pair": [i, j], **result.metrics(), "undistorted_verified": int(mask.sum()), "verification_status": status})
+            if j > i and (j - i <= window or (long_gap > 0 and j - i == long_gap)):
+                process(i, j)
+    original_components = components(views, pairs)
+    attempted = {tuple(p['pair']) for p in pair_metrics}
+    counts = {}
+    signatures = appearance_signatures(views) if recovery_pairs else {}
+    for _ in range(recovery_pairs):
+        candidate = discovery_candidate(views, pairs, attempted, counts, signatures)
+        if candidate is None:
+            break
+        i, j, distance = candidate
+        attempted.add((i, j))
+        counts[i], counts[j] = counts.get(i, 0) + 1, counts.get(j, 0) + 1
+        process(i, j, distance)
     matching_seconds = perf_counter() - start
     start = perf_counter()
     tracks, track_metrics = build_tracks([(a, b) for _, a, b in sorted(edges)])
     track_metrics.update(matching_seconds=matching_seconds, track_construction_seconds=perf_counter() - start)
+    track_metrics['graph'] = {'components_before': original_components, 'components_after': components(views, pairs),
+                              'scheduled_pairs': sum(p['discovery_distance'] is None for p in pair_metrics),
+                              'discovery_attempts': sum(p['discovery_distance'] is not None for p in pair_metrics),
+                              'verified_edges': len(pairs), 'discovery_budget': recovery_pairs}
     return pairs, tracks, pair_metrics, track_metrics
 
 
 def reconstruct_sequence(input_path, output, camera=None, approximate=False, focal_px=None, fov_degrees=None,
                          detector="sift", max_dimension=1600, max_features=6000, ratio=0.75,
                          window=2, long_gap=4, max_images=30, min_registered=5, local_ba=False,
-                         quality_config=None, seed=0, feature_cache=None):
+                         quality_config=None, seed=0, feature_cache=None, recovery_pairs=0, joint_ba=False):
     start = perf_counter()
     stages = {k: 0.0 for k in ("loading_preprocessing", "features", "matching", "tracks", "initial_pair",
                                "registration", "triangulation", "bundle_adjustment", "validation", "export")}
@@ -87,6 +106,8 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
         raise ValueError("Ratio must be between 0 and 1")
     if not 1 <= max_features <= 20000 or max_dimension < 2:
         raise ValueError("Feature limit must be 1..20000 and maximum dimension >=2")
+    if not isinstance(recovery_pairs, int) or not 0 <= recovery_pairs <= 30:
+        raise ValueError('Recovery pair budget must be 0..30')
     geometry, pnp_quality, bundle = load_quality(quality_config)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
@@ -157,11 +178,12 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                            "ratio": ratio, "window": window, "long_gap": long_gap, "max_images": max_images,
                            "min_registered": min_registered, "local_ba": local_ba, "seed": seed,
                            "opencv_threads": 1, "feature_cache": str(Path(feature_cache).resolve()) if feature_cache else None,
+                           "recovery_pairs": recovery_pairs, "joint_ba": joint_ba,
                            "geometry": asdict(geometry), "registration": asdict(pnp_quality), "bundle": asdict(bundle)},
                 "versions": {n: importlib.metadata.version(n) for n in ("vision3d", "numpy", "scipy", "opencv-contrib-python", "open3d")}}
     write_json(output / "manifest.json", manifest)
     write_json(output / "intrinsics.json", intrinsics)
-    pairs, tracks, pair_metrics, track_metrics = match_sequence(views, window, long_gap, geometry, ratio, seed)
+    pairs, tracks, pair_metrics, track_metrics = match_sequence(views, window, long_gap, geometry, ratio, seed, recovery_pairs)
     stages["matching"] = track_metrics["matching_seconds"]
     stages["tracks"] = track_metrics["track_construction_seconds"]
     write_json(output / "pairs.json", pair_metrics)
@@ -206,6 +228,11 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
             bundle_history.append(local_bundle_adjust(state, bundle, geometry.max_reprojection_px,
                 geometry.min_angle_degrees, geometry.max_distance))
             stages["bundle_adjustment"] += perf_counter() - phase_start
+    if joint_ba:
+        phase_start = perf_counter()
+        bundle_history.append(local_bundle_adjust(state, bundle, geometry.max_reprojection_px,
+            geometry.min_angle_degrees, geometry.max_distance, joint=True))
+        stages['bundle_adjustment'] += perf_counter() - phase_start
     phase_start = perf_counter()
     validation_args = {"min_angle_degrees": geometry.min_angle_degrees, "max_distance": geometry.max_distance}
     current_quality = validate_landmarks(state, geometry.max_reprojection_px, **validation_args)

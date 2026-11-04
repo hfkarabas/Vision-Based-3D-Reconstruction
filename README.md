@@ -141,3 +141,17 @@ Reliability corrections include conflict-aware initial selection, spatially dist
 Local BA now selects two fixed, noncoincident covisible boundary cameras when the active window no longer sees both initial anchors. Initial anchors remain fixed globally; boundary poses preserve the current world frame and scale. Window/point/evaluation bounds stay unchanged. Updates must preserve the identities of previously valid observations and landmarks, not just aggregate invalid counts. Candidate pruning completes before atomic commit. Both local same-observation RMS/robust cost and global same-observation metrics are recorded; new geometric invalidity causes rollback even if an error summary improves.
 
 Temple evaluation demonstrates why reprojection fit alone is insufficient: the 30-input run registered 18 cameras and had about 0.26px median reprojection error but about 6.6° median aligned rotation error. Similarity-aligned camera-center errors and relative rotation/translation-direction errors are exported separately, with reporting warnings for poor reference agreement. Approximate intrinsics can fit image observations while producing substantially biased camera orientation. The current engine remains a bounded sparse research pipeline; the measured registration gaps and drift need resolution before dense reconstruction. See the report for exact results and failure cases.
+
+## Experimental registration recovery and progress evidence
+
+```powershell
+.venv\Scripts\python.exe scripts/benchmark_sfm.py --suite configs/recovery_experiments.json --output outputs/recovery-final
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence --input datasets/scene --camera configs/camera.json --local-ba --recovery-pairs 12 --joint-ba --output outputs/recovery-example
+.venv\Scripts\python.exe scripts/progress_evidence.py --baseline outputs/recovery-baseline --experiments outputs/recovery-final --output outputs/progress-presentation-final
+```
+
+These flags are **experimental and off by default**. `--recovery-pairs` bounds additional appearance-ranked matching (0–30 attempts, at most three new attempts per image), prioritizing disconnected components. Only geometrically verified edges enter tracks. `--joint-ba` attempts one final sparse refinement capped at 30 cameras, 2000 landmarks and the existing evaluation budget, with actual anchor-connectivity checks, fixed initial poses/intrinsics, unchanged quality gates and atomic rollback.
+
+On Temple 30, discovery registered 23/30 cameras versus 18/30, but rotation accuracy worsened, including on the same 18-camera comparison set. Joint refinement reduced Temple 15 image residuals while worsening reference rotation accuracy; other joint proposals rolled back. These are controlled negative/tradeoff findings, not a successful accuracy-improving default. Full registration and safe drift reduction remain unresolved; dense reconstruction is not ready.
+
+See [the recovery report](docs/TASK05_REPORT.md) for root causes, all individual/combined experiments, exact metrics and reproducibility. `outputs/progress-presentation-final/` contains traceable real-image matches, reconstructed points/cameras, registration and pose-accuracy comparisons, graph diagnostics and compact tables for the November 9, 2026 university update. No slides or academic paper are generated. Keep the pre-change baseline run (or archived preceding source) for the evidence script, and use fresh output directories when reproducing.

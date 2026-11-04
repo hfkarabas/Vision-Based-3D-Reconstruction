@@ -26,8 +26,12 @@ class BundleOptions:
             raise ValueError("BA limits: 3..10 cameras, 20..2000 points, 1..100 evaluations, positive finite scales")
 
 
-def local_bundle_adjust(state, options=BundleOptions(), max_error_px=2.0, min_angle_degrees=1.0, max_distance=1000.0):
-    recent = [i for i in state.registration_order if i not in state.anchors][-(options.max_cameras - 2):]
+def local_bundle_adjust(state, options=BundleOptions(), max_error_px=2.0, min_angle_degrees=1.0, max_distance=1000.0, joint=False):
+    if joint and len(state.poses) > 30:
+        return {'status': 'skipped', 'reason': 'joint_camera_limit_30'}
+    recent = [i for i in state.registration_order if i not in state.anchors]
+    if not joint:
+        recent = recent[-(options.max_cameras - 2):]
     if len(state.anchors) != 2 or not recent:
         return {"status": "skipped", "reason": "need_two_anchors_and_a_registered_camera"}
     # Fixed boundary cameras retain the current world frame/scale, even after
@@ -43,13 +47,24 @@ def local_bundle_adjust(state, options=BundleOptions(), max_error_px=2.0, min_an
     if not choices:
         return {"status": "skipped", "reason": "no_noncoincident_boundary_pair"}
     _, a, b = max(choices)
-    fixed = [-a, -b]
+    fixed = list(state.anchors) if joint else [-a, -b]
     selected = set(fixed + recent)
     landmarks = [l for l in state.landmarks.values() if any(i in l.observations for i in recent)
-                 and all(i in l.observations for i in fixed)]
-    landmarks = sorted(landmarks, key=lambda l: (-len(selected & l.observations.keys()), l.id))[:options.max_points]
+                 and (len(selected & l.observations.keys()) >= 2 if joint else all(i in l.observations for i in fixed))]
+    landmarks = sorted(landmarks, key=lambda l: (-len(selected & l.observations.keys()), l.id))[:(2000 if joint else options.max_points)]
     if len(landmarks) < 20:
         return {"status": "skipped", "reason": "too_few_local_landmarks"}
+    if any(sum(i in l.observations for l in landmarks) < 20 for i in recent):
+        return {'status': 'skipped', 'reason': 'insufficient_selected_camera_support'}
+    if joint:
+        from .graph import components
+        connections = set()
+        for landmark in landmarks:
+            images = sorted(selected & landmark.observations.keys())
+            connections.update((images[0], i) for i in images[1:])
+        if (any(sum(i in l.observations for l in landmarks) < 20 for i in fixed)
+                or not any(selected <= set(group) for group in components(selected, connections))):
+            return {'status': 'skipped', 'reason': 'joint_window_not_anchored'}
     camera_index = {image: k for k, image in enumerate(recent)}
     camera_size = 6 * len(recent)
     initial = np.r_[np.concatenate([np.r_[cv2.Rodrigues(state.poses[i].rotation)[0].ravel(), state.poses[i].translation] for i in recent]),
@@ -93,7 +108,8 @@ def local_bundle_adjust(state, options=BundleOptions(), max_error_px=2.0, min_an
         return {"status": "rolled_back", "reason": "nonfinite_initial_residual"}
     robust_before = float(np.sum(options.loss_scale_px ** 2 * (np.sqrt(1 + (initial_residual / options.loss_scale_px) ** 2) - 1)))
     info = {"cameras_optimized": recent, "fixed_cameras": fixed, "points_optimized": len(landmarks),
-            "residuals": row_count, "before": before}
+            "residuals": row_count, "before": before, 'scope': 'bounded_joint' if joint else 'local',
+            'selected_landmark_ids': [l.id for l in landmarks]}
     invalid_before = invalid_observations(state, max_error_px)
     try:
         fit = least_squares(residual, initial, jac_sparsity=sparsity.tocsr(), method="trf", loss="soft_l1",

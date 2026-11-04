@@ -282,3 +282,31 @@ def test_bundle_nonfinite_initial_state_is_rejected_without_mutation(scene):
     result = local_bundle_adjust(state)
     assert result["status"] == "rolled_back" and result["reason"] == "nonfinite_initial_state"
     assert np.array_equal(before, state.poses[2].matrix)
+
+
+def test_bounded_joint_bundle_preserves_gauge_and_observation_set(scene):
+    state = prepared_bundle(scene)
+    anchors = {i: state.poses[i].matrix.copy() for i in state.anchors}
+    observations = {i: dict(l.observations) for i, l in state.landmarks.items()}
+    result = local_bundle_adjust(state, BundleOptions(max_evaluations=50), joint=True)
+    assert result['status'] == 'accepted' and result['scope'] == 'bounded_joint'
+    assert result['after']['rms_error_px'] < result['before']['rms_error_px']
+    assert result['new_invalid_observations'] == 0
+    assert {i: l.observations for i, l in state.landmarks.items()} == observations
+    for i, pose in anchors.items():
+        assert np.array_equal(pose, state.poses[i].matrix)
+
+
+def test_joint_bundle_camera_limit_is_explicit(scene):
+    state, _, poses = scene
+    state.poses = {i: poses[0] for i in range(31)}
+    assert local_bundle_adjust(state, joint=True)['reason'] == 'joint_camera_limit_30'
+
+
+def test_joint_bundle_requires_actual_anchor_observations(scene):
+    state, xyz, poses = scene
+    state.poses = poses
+    state.anchors = (0, 1)
+    state.registration_order = [0, 1, 2, 3, 4]
+    state.landmarks = {i: Landmark(i, p, np.full(3, .5), {2:i, 3:i, 4:i}) for i,p in enumerate(xyz)}
+    assert local_bundle_adjust(state, joint=True)['reason'] == 'joint_window_not_anchored'
