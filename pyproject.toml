@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vision3d"
+version = "0.1.0"
+description = "CPU image preprocessing and feature matching for 3D reconstruction research"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy==2.2.6", "scipy==1.15.3", "opencv-contrib-python==4.11.0.86",
+  "open3d==0.19.0", "matplotlib==3.10.3", "pandas==2.2.3", "Pillow==11.2.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.5"]
+
+[project.scripts]
+vision3d = "vision3d.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

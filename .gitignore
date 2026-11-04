@@ -179,3 +179,10 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# Local runtimes, data and generated diagnostics
+.python/
+.uv-cache/
+datasets/
+outputs/
+experiments/
+pytest-cache-files-*/
