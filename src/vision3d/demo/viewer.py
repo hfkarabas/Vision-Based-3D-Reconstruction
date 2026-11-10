@@ -82,11 +82,41 @@ def load_mesh(path):
     return mesh
 
 
+def load_textured_meshes(path):
+    import numpy as np
+    import open3d as o3d
+
+    path = Path(path)
+    if not path.is_file() or path.suffix.lower() != ".glb":
+        raise ValueError(f"Textured GLB file not found: {path}")
+    model = o3d.io.read_triangle_model(str(path))
+    meshes, photo_groups = [], 0
+    for group in model.meshes:
+        mesh = group.mesh
+        if not mesh.has_triangles() or not np.isfinite(np.asarray(mesh.vertices)).all():
+            raise ValueError("GLB contains an invalid mesh group")
+        image = model.materials[group.material_idx].albedo_img
+        if mesh.has_triangle_uvs() and np.asarray(image).ndim == 3:
+            mesh.textures = [image]
+            mesh.triangle_material_ids = o3d.utility.IntVector(np.zeros(len(mesh.triangles), dtype=np.int32))
+            photo_groups += 1
+        elif mesh.has_vertex_colors():
+            colors = np.asarray(mesh.vertex_colors).clip(0., 1.)
+            mesh.vertex_colors = o3d.utility.Vector3dVector(np.where(
+                colors <= .0031308, 12.92 * colors, 1.055 * colors ** (1 / 2.4) - .055))
+        meshes.append(mesh)
+    if photo_groups == 0:
+        raise ValueError("GLB contains no bound photographic texture")
+    return meshes
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Interactive viewer for an exported colored point cloud or mesh")
-    parser.add_argument("--ply", required=True)
+    parser = argparse.ArgumentParser(description="Interactive viewer for an exported point cloud or mesh")
+    parser.add_argument("--ply", "--model", dest="ply", required=True)
     parser.add_argument("--status-file", required=True)
-    parser.add_argument("--mesh", action="store_true", help="Load the PLY as a triangle mesh")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--mesh", action="store_true", help="Load the PLY as a triangle mesh")
+    mode.add_argument("--textured", action="store_true", help="Load a photographic GLB")
     parser.add_argument("--control-file", help="Optional desktop camera-visibility commands")
     args = parser.parse_args(argv)
     status_file = Path(args.status_file)
@@ -95,22 +125,31 @@ def main(argv=None):
     visualizer = None
     try:
         import open3d as o3d
-        geometry = load_mesh(args.ply) if args.mesh else load_cloud(args.ply)
-        points = geometry.vertices if args.mesh else geometry.points
-        label = "colored mesh" if args.mesh else "point cloud"
+        import numpy as np
+        if args.textured:
+            geometries = load_textured_meshes(args.ply)
+            points = np.concatenate([np.asarray(mesh.vertices) for mesh in geometries])
+            label = "photographic mesh"
+        else:
+            geometry = load_mesh(args.ply) if args.mesh else load_cloud(args.ply)
+            geometries = [geometry]
+            points = geometry.vertices if args.mesh else geometry.points
+            label = "colored mesh" if args.mesh else "point cloud"
         visualizer = o3d.visualization.VisualizerWithKeyCallback()
         if not visualizer.create_window(f"Vision-Based 3D Reconstruction — {label}", width=1100, height=760):
             raise RuntimeError("Open3D could not create a rendering window. Check the desktop/OpenGL driver.")
-        if not visualizer.add_geometry(geometry):
+        if not all(visualizer.add_geometry(geometry) for geometry in geometries):
             raise RuntimeError("Open3D could not add the geometry to the viewer.")
         options = visualizer.get_render_option()
         options.background_color = [1.0, 1.0, 1.0]
         options.point_size = 4.0
-        options.mesh_show_back_face = args.mesh
+        options.mesh_show_back_face = args.mesh or args.textured
+        if args.textured:
+            options.mesh_color_option = o3d.visualization.MeshColorOption.Color
+            options.light_on = False
         visualizer.reset_view_point(True)
         # Camera-aligned framing changes only the view, not the actual exported points.
         from .view_geometry import camera_view, camera_frustum, load_context, load_intrinsics
-        import numpy as np
         context_status = "default_view_no_camera_metadata"
         cameras = axes_toggle = None
         def open_status():
@@ -120,7 +159,7 @@ def main(argv=None):
                    display_filter="none; every exported point is displayed",
                    controls="Show Cameras: C or desktop checkbox; R reset; A coordinate axes (when metadata available)")
         try:
-            poses = load_context(args.ply)
+            poses = [] if args.textured else load_context(args.ply)
             view = camera_view(np.asarray(points), [p['world_to_camera'] for p in poses])
             active_overlays = {}
             context_center = view['lookat']

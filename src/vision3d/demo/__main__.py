@@ -38,6 +38,8 @@ class DemoApp:
         self.dense_profile = tk.StringVar(value="Sparse only")
         self.mesh_requested = tk.BooleanVar(value=True)
         self.glb_requested = tk.BooleanVar(value=False)
+        self.texture_requested = tk.BooleanVar(value=False)
+        self.textured_path = None
         self.job_results = {}
         self.count = tk.StringVar(value="No input selected")
         self.stage = tk.StringVar(value="Ready")
@@ -110,6 +112,9 @@ class DemoApp:
         self.mesh_check.pack(side="left", padx=8)
         self.glb_check = ttk.Checkbutton(dense_options, text="GLB export", variable=self.glb_requested, state="disabled")
         self.glb_check.pack(side="left")
+        self.texture_check = ttk.Checkbutton(dense_options, text="Photo texture", variable=self.texture_requested,
+                                             state="disabled")
+        self.texture_check.pack(side="left", padx=(8, 0))
         self.switch_button = ttk.Button(dense_options, text="Switch Sparse / Dense",
                                         command=self.switch_result, state="disabled")
         self.switch_button.pack(side="left", padx=8)
@@ -124,6 +129,8 @@ class DemoApp:
         self.view_button.pack(side="left")
         self.mesh_button = ttk.Button(result_buttons, text="Open Mesh", command=lambda: self.open_view(mesh=True), state="disabled")
         self.mesh_button.pack(side="left", padx=(8, 0))
+        self.texture_button = ttk.Button(result_buttons, text="Open UV GLB", command=self.open_texture)
+        self.texture_button.pack(side="left", padx=(8, 0))
         self.output_button = ttk.Button(result_buttons, text="Open Output Folder", command=self.open_output, state="disabled")
         self.output_button.pack(side="left", padx=8)
         self.export_button = ttk.Button(result_buttons, text="Save PLY As…", command=self.export_ply, state="disabled")
@@ -277,11 +284,13 @@ class DemoApp:
         dense = not active and self.dense_profile.get() != "Sparse only"
         self.mesh_check.configure(state="normal" if dense else "disabled")
         self.glb_check.configure(state="normal" if dense and self.mesh_requested.get() else "disabled")
+        self.texture_check.configure(state="normal" if dense and self.mesh_requested.get() else "disabled")
         self.switch_button.configure(state="normal" if not active and len(self.job_results) == 2 and self.viewer is None else "disabled")
         self.cancel_button.configure(state="normal" if active and not self.closing and not self.stop.is_set() else "disabled")
         self.export_button.configure(state="normal" if not active and self.result else "disabled")
         mesh_available = self.result and self.result.is_dense and (self.result.directory / "mesh.ply").is_file()
         self.mesh_button.configure(state="normal" if not active and mesh_available and self.viewer is None else "disabled")
+        self.texture_button.configure(state="normal" if not active and self.viewer is None else "disabled")
         self.output_button.configure(state="normal" if not active and self.run_folder else "disabled")
 
     def start(self):
@@ -291,6 +300,7 @@ class DemoApp:
             self.error("Select a video, an image folder or at least two photographs first.")
             return
         self.result = None
+        self.textured_path = None
         self.run_folder = None
         self.job_results.clear()
         self.result_path.set("New reconstruction — validating input")
@@ -303,7 +313,8 @@ class DemoApp:
         self.worker = threading.Thread(target=run_job, args=(self.selected_files or self.folder.get(), self.camera.get(), self.output_base,
             lambda kind, value: self.events.put((kind, value)), self.stop, int(self.quality.get()),
             None if profile == "Sparse only" else profile, mesh, mesh and self.glb_requested.get(), self.enhanced_matching.get(),
-            self.video_options.copy() if self.video_path else None), name="reconstruction-worker", daemon=False)
+            self.video_options.copy() if self.video_path else None, mesh and self.texture_requested.get()),
+            name="reconstruction-worker", daemon=False)
         self.worker.start()
 
     def show_result(self, result, previous=False, elapsed=None):
@@ -325,6 +336,8 @@ class DemoApp:
             try:
                 result = read_result(folder)
                 self.job_results.clear()
+                asset = result.directory.parent / "texture-asset" / "textured.glb"
+                self.textured_path = asset if asset.is_file() else None
                 self.show_result(result, previous=True)
                 self.busy(False)
             except (ValueError, OSError) as exc:
@@ -337,14 +350,24 @@ class DemoApp:
         except (OSError, ValueError, TypeError) as exc:
             self.error(str(exc))
 
-    def open_view(self, mesh=False):
-        if self.viewer is not None or not self.result:
+    def open_texture(self):
+        path = self.textured_path
+        if path is None or not path.is_file():
+            filename = filedialog.askopenfilename(title="Open a saved photographic GLB", parent=self.root,
+                                                   filetypes=[("glTF binary model", "*.glb")])
+            if not filename:
+                return
+            path = Path(filename)
+        self.open_view(textured=path)
+
+    def open_view(self, mesh=False, textured=None):
+        if self.viewer is not None or (textured is None and not self.result):
             return
         try:
-            path = self.result.directory / "mesh.ply" if mesh else self.result.ply
+            path = textured if textured is not None else (self.result.directory / "mesh.ply" if mesh else self.result.ply)
             if not path.is_file():
-                raise ValueError(f"PLY file is missing: {path}")
-            mesh_flag = ["--mesh"] if mesh else []
+                raise ValueError(f"Model file is missing: {path}")
+            mesh_flag = ["--textured"] if textured is not None else ["--mesh"] if mesh else []
             session = allocate_run(self.output_base / "viewers")
             self.viewer_status = session / "status.json"
             self.viewer_control = session / "control.json"
@@ -355,8 +378,8 @@ class DemoApp:
                     "--status-file", str(self.viewer_status), "--control-file", str(self.viewer_control)], stdout=log, stderr=subprocess.STDOUT, **child_options())
             self.view_button.configure(state="disabled")
             self.mesh_button.configure(state="disabled")
-            self.note("Starting separate Open3D viewer; loading the saved PLY.")
-            self.note("All exported points are displayed. R resets camera-aligned view; C toggles camera outlines; A toggles axes when camera metadata is available.")
+            self.texture_button.configure(state="disabled")
+            self.note(f"Opening {path.name} in Open3D.")
             self.viewer_reported = False
         except (OSError, ValueError) as exc:
             self.error(f"Could not start 3D view: {exc}")
@@ -397,6 +420,12 @@ class DemoApp:
                 self.started = None
             elif kind == "notice":
                 self.note(value)
+            elif kind == "texture":
+                self.textured_path = Path(value)
+                self.run_folder = self.textured_path.parent
+                self.stage.set("Photographic GLB ready")
+                self.result_path.set(str(self.run_folder))
+                self.note(f"Saved photographic GLB: {value}")
             elif kind == "error":
                 self.stage.set("Failed — see details below")
                 self.note(value)

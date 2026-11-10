@@ -202,8 +202,27 @@ def reported_stage(log, fallback):
         return fallback
 
 
+def run_surface_workflow(dense, run, triangles, emit, stop):
+    surface, texture = run / "surface-asset", run / "texture-asset"
+    stages = [("surface-asset", ["--dense-dir", str(dense), "--output", str(surface),
+                                 "--target-faces", str(max(450000, (triangles + 2) // 3))]),
+              ("texture-asset", ["--surface-dir", str(surface), "--output", str(texture)])]
+    for name, arguments in stages:
+        command = [sys.executable, "-u", "-m", "vision3d.cli", name, *arguments]
+        log = run / f"{name}.log"
+        code = run_child(command, log, lambda: reported_stage(log, f"Starting {name}"), emit, stop)
+        if stop.is_set():
+            emit("stage", "Asset processing cancelled. Completed reconstruction files are available.")
+            return
+        if code != 0:
+            tail = log.read_text(encoding="utf-8", errors="replace")[-1600:]
+            emit("error", f"{name} failed. The dense mesh is available.\n{tail}")
+            return
+    emit("texture", str(texture / "textured.glb"))
+
+
 def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, mesh=False, glb=False,
-            enhanced=False, video_options=None):
+            enhanced=False, video_options=None, texture=False):
     """Blocking worker function; only messages cross into the Tk main thread."""
     run = None
     try:
@@ -301,6 +320,8 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, 
                 for item in (surface, surface.get("glb", {})):
                     if "reason" in item:
                         emit("notice", item["reason"])
+                if texture and surface.get("status") == "success":
+                    run_surface_workflow(dense, run, surface["triangles"], emit, stop)
     except Exception as exc:
         emit("error", f"{type(exc).__name__}: {exc}" + (f"\nRun folder: {run}" if run else ""))
     finally:

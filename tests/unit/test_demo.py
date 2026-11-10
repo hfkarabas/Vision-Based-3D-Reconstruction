@@ -285,3 +285,22 @@ def test_dense_failure_leaves_sparse_result_available(tmp_path, monkeypatch):
     assert result.ply.exists() and not result.is_dense
     assert any(kind == "error" and "Sparse result remains available" in value for kind, value in events)
     assert events[-1] == ("done", None)
+def test_surface_workflow_preserves_completed_mesh_when_texturing_fails(tmp_path, monkeypatch):
+    import threading
+    from vision3d.demo import support
+
+    calls, events = [], []
+
+    def run_child(command, log, stage, emit, stop):
+        calls.append(command[4])
+        log.write_text("surface validation error", encoding="utf-8")
+        return 2 if command[4] == "texture-asset" else 0
+
+    monkeypatch.setattr(support, "run_child", run_child)
+    dense = tmp_path / "dense"
+    dense.mkdir()
+    (dense / "mesh.ply").write_bytes(b"existing")
+    support.run_surface_workflow(dense, tmp_path, 200000, lambda *event: events.append(event), threading.Event())
+    assert calls == ["surface-asset", "texture-asset"]
+    assert events[0][0] == "error" and "dense mesh is available" in events[0][1]
+    assert (dense / "mesh.ply").read_bytes() == b"existing"
