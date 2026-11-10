@@ -31,3 +31,18 @@ def test_descriptor_similarity_never_creates_unverified_tracks(monkeypatch):
     assert len(metrics) == 7  # four scheduled plus bounded three discovery attempts
     assert statistics['graph']['components_after'] == [[0], [1], [2], [3], [4]]
     assert statistics['graph']['discovery_attempts'] == 3
+
+
+
+def test_exhaustive_schedules_each_pair_once_and_reuses_descriptor_cache(tmp_path):
+    image = np.random.default_rng(8).integers(0, 256, (240, 320, 3), np.uint8)
+    features = extract(image, "sift", 200)
+    camera = Camera(320, 240, 250, 250, 159.5, 119.5)
+    views = {i: View(i, str(i), camera, features, np.zeros((features.count, 3))) for i in range(5)}
+    first = match_sequence(views, 1, 0, Quality(), 0.75, exhaustive=True, pair_cache=tmp_path)
+    second = match_sequence(views, 1, 0, Quality(), 0.75, exhaustive=True, pair_cache=tmp_path)
+    assert len({tuple(p["pair"]) for p in first[2]}) == 10
+    assert first[3]["graph"]["scheduled_pairs"] == 4
+    assert first[3]["graph"]["exhaustive_attempts"] == 6
+    assert second[3]["graph"]["pair_cache_hits"] == 10
+    assert [p["undistorted_verified"] for p in first[2]] == [p["undistorted_verified"] for p in second[2]]

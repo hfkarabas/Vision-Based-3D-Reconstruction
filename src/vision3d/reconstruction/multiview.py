@@ -54,13 +54,16 @@ def relative_pose(a, b):
     return rotation, b.translation - rotation @ a.translation
 
 
-def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse):
+def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse, object_masks=(None, None)):
     size = (camera_a.width, camera_a.height)
+    object_a, object_b = object_masks
     # stereoRectify uses one canvas size. Preserve each source's pixel geometry
     # when mapping a differently sized source onto that canvas.
     if (camera_b.width, camera_b.height) != size:
         right = cv2.resize(right, size, interpolation=cv2.INTER_LINEAR)
         camera_b = camera_b.resized(*size)
+        if object_b is not None:
+            object_b = cv2.resize(object_b, size, interpolation=cv2.INTER_NEAREST)
     r, t = relative_pose(a, b)
     if np.linalg.norm(t) < 1e-8:
         raise ValueError("negligible baseline")
@@ -78,9 +81,12 @@ def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse)
     minimum, count = disparity_range(-p2[axis, 3] / z, size[axis])
     near, far = np.percentile(z, [2, 98])
     images, masks = [], []
-    for image, camera, rect, projection in ((left, camera_a, r1, p1), (right, camera_b, r2, p2)):
+    for image, camera, rect, projection, object_mask in ((left, camera_a, r1, p1, object_a),
+                                                        (right, camera_b, r2, p2, object_b)):
         mx, my = cv2.initUndistortRectifyMap(camera.K, camera.D, rect, projection[:, :3], size, cv2.CV_32FC1)
         masks.append((mx >= 2) & (my >= 2) & (mx < size[0] - 3) & (my < size[1] - 3))
+        if object_mask is not None:
+            masks[-1] &= cv2.remap(object_mask, mx, my, cv2.INTER_NEAREST).astype(bool)
         images.append(cv2.remap(image, mx, my, cv2.INTER_LINEAR))
     projection = p1[:, :3]
     if vertical:
@@ -172,8 +178,21 @@ def overlapping_pairs(landmarks, poses):
     return {i: sorted(values, key=lambda entry: (-entry[0], entry[1])) for i, values in neighbors.items()}
 
 
+def rasterize_polygon(vertices, size):
+    vertices = np.asarray(vertices, dtype=float)
+    if (vertices.ndim != 2 or vertices.shape[1] != 2 or len(vertices) < 3
+            or not np.isfinite(vertices).all() or np.any((vertices < 0) | (vertices > 1))):
+        raise ValueError("Object polygons require at least three normalized [x, y] vertices")
+    polygon = np.rint(vertices * (np.array(size) - 1)).astype(np.int32)
+    if cv2.contourArea(polygon) < 1:
+        raise ValueError("Object polygon has no area")
+    mask = np.zeros(size[::-1], np.uint8)
+    cv2.fillPoly(mask, [polygon], 1)
+    return mask
+
+
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
-                          glb=False, stage=lambda name: None):
+                          glb=False, stage=lambda name: None, object_masks=None):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -212,6 +231,11 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     sources = {entry["image_id"]: entry for entry in manifest["inputs"]}
     original = {entry["image_id"]: parse_camera(entry["original"]) for entry in intrinsics}
     inputs = {}
+    polygons = None
+    if object_masks is not None:
+        polygons = json.loads(Path(object_masks).read_text(encoding="utf-8"))
+        if not isinstance(polygons, dict) or any(sources[i]["name"] not in polygons for i in poses):
+            raise ValueError("Object masks must map every registered image filename to a polygon")
 
     def image(i):
         if i not in inputs:
@@ -227,7 +251,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
             size = (round(width * scale), round(height * scale))
             if min(size) < 64:
                 raise ValueError("Dense processing needs at least 64 pixels on each side")
-            inputs[i] = cv2.resize(frame, size, interpolation=cv2.INTER_AREA), camera.resized(*size)
+            mask = rasterize_polygon(polygons[source["name"]], size) if polygons is not None else None
+            inputs[i] = cv2.resize(frame, size, interpolation=cv2.INTER_AREA), camera.resized(*size), mask
         return inputs[i]
 
     cv2.setNumThreads(1)
@@ -236,14 +261,14 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     used_pixels = 0
     for index, reference in enumerate(selected, 1):
         stage(f"Estimating depth for reference {index}/{len(selected)}")
-        left, a = image(reference)
+        left, a, object_a = image(reference)
         if used_pixels + a.width * a.height > 8_000_000:
             attempts.append({"reference": reference, "reason": "total depth-map pixel budget reached"})
             continue
         for _, source, xyz in neighbors[reference][:settings.attempts]:
-            right, b = image(source)
+            right, b, object_b = image(source)
             try:
-                depth = make_depth(reference, source, poses[reference], poses[source], a, b, left, right, xyz)
+                depth = make_depth(reference, source, poses[reference], poses[source], a, b, left, right, xyz, (object_a, object_b))
             except (ValueError, cv2.error) as exc:
                 attempts.append({"reference": reference, "source": source, "reason": str(exc)})
                 stage(f"Depth pair {reference}/{source} skipped: {exc}")
@@ -319,10 +344,12 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                 mesh_info["glb"] = {"status": "failed", "reason": str(exc)}
             else:
                 mesh_info["glb"] = {"status": "success", "axis_transform": [1, -1, -1], "color": "linear COLOR_0"}
+    if polygons is not None:
+        write_json(output / "object_masks.json", polygons)
     write_json(output / "poses.json", pose_records)
     write_json(output / "intrinsics.json", intrinsics)
     metrics = {"status": "success", "representation": "dense_multiview", "source_sparse": str(sparse_dir.resolve()),
-               "profile": profile, "settings": asdict(settings), "registered_images": len(poses), "dense_points": len(xyz),
+               "profile": profile, "settings": asdict(settings), "object_masks": bool(polygons), "registered_images": len(poses), "dense_points": len(xyz),
                "depth_maps": len(maps), "fused_references": [d.reference for d, _, _ in accepted],
                "raw_depth_samples": sum(len(d.xyz) for d in maps), "checked_samples": sample_count,
                "depth_canvas_pixels": used_pixels,
