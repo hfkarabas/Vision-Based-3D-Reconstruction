@@ -116,6 +116,7 @@ def main(argv=None):
     pair.add_argument("--image2", required=True)
     calibration = pair.add_mutually_exclusive_group(required=True)
     calibration.add_argument("--camera")
+    calibration.add_argument("--auto-intrinsics", action="store_true")
     calibration.add_argument("--approximate-intrinsics", action="store_true", dest="approximate")
     assumption = pair.add_mutually_exclusive_group()
     assumption.add_argument("--focal-px", type=float)
@@ -128,9 +129,12 @@ def main(argv=None):
     pair.add_argument("--seed", type=int, default=0)
     pair.add_argument("--preview", action="store_true", help="Save a static colored point cloud preview")
     sequence = sub.add_parser("reconstruct-sequence", help="Track-based incremental multi-view SfM")
-    sequence.add_argument("--input", required=True, dest="input_path")
+    inputs = sequence.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--input", dest="input_path")
+    inputs.add_argument("--images", nargs="+", dest="input_path", metavar="IMAGE")
     sequence.add_argument("--output", required=True)
     calibration = sequence.add_mutually_exclusive_group(required=True)
+    calibration.add_argument("--auto-intrinsics", action="store_true")
     calibration.add_argument("--camera")
     calibration.add_argument("--approximate-intrinsics", action="store_true", dest="approximate")
     assumption = sequence.add_mutually_exclusive_group()
@@ -147,8 +151,19 @@ def main(argv=None):
     sequence.add_argument('--recovery-pairs', type=int, default=0, help='Additional verified appearance-ranked pairs, budget 0..30')
     sequence.add_argument('--joint-ba', action='store_true', help='Final bounded joint map refinement')
     sequence.add_argument('--refine-points', action='store_true', help='Fixed-camera refinement of verified multiview landmarks')
+    dense = sub.add_parser("dense-pair", help="Experimental CPU dense stereo from a calibrated pair result")
+    dense.add_argument("--pair-dir", required=True)
+    dense.add_argument("--output", required=True)
+    dense.add_argument("--mesh", action="store_true", help="Export an open vertex-colored stereo surface")
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
+    if selected == "dense-pair":
+        from vision3d.reconstruction.stereo import reconstruct_dense_pair
+        try:
+            print(json.dumps(reconstruct_dense_pair(**args)))
+        except (ValueError, OSError, KeyError, TypeError, cv2.error) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        return
     if selected == "reconstruct-sequence":
         from vision3d.geometry.two_view import ReconstructionRejected
         from vision3d.reconstruction.sequence import reconstruct_sequence

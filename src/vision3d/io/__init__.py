@@ -14,6 +14,19 @@ class Frame:
     metadata: dict
 
 
+def image_paths(paths):
+    """Resolve a folder or explicit selection into deterministic image paths."""
+    if isinstance(paths, (str, Path)):
+        files = [p for p in Path(paths).iterdir() if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"}]
+    else:
+        files = [Path(p).resolve() for p in paths]
+        if len(set(files)) != len(files):
+            raise ValueError("An image was selected more than once")
+        if any(not p.is_file() or p.suffix.lower() not in {".jpg", ".jpeg", ".png"} for p in files):
+            raise ValueError("Select existing JPEG/PNG images")
+    return sorted(files, key=lambda p: (p.name.casefold(), p.name, str(p)))
+
+
 def load_image(path: Path) -> Frame:
     path = Path(path)
     try:
@@ -21,13 +34,28 @@ def load_image(path: Path) -> Frame:
             if source.format not in {"JPEG", "PNG"}:
                 raise ValueError(f"Unsupported image format: {path}")
             original = source.size
-            orientation = source.getexif().get(274, 1)
+            exif = source.getexif()
+            orientation = exif.get(274, 1)
+            try:
+                camera_tags = exif.get_ifd(34665)
+            except (OSError, ValueError, SyntaxError, TypeError, OverflowError):
+                camera_tags = {}
+            capture_time = camera_tags.get(36867, exif.get(306))
+            focal_tags = {}
+            for tag in (41989, 37386, 41486, 41487, 41488, 40962, 40963, 41988):
+                try:
+                    value = float(camera_tags.get(tag, exif.get(tag)))
+                    if np.isfinite(value) and value >= 0:
+                        focal_tags[str(tag)] = value
+                except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+                    continue
             rgb = np.array(ImageOps.exif_transpose(source).convert("RGB"))
     except (OSError, UnidentifiedImageError) as exc:
         raise ValueError(f"Unreadable image: {path}") from exc
     return Frame(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), {
         "source": str(path.resolve()), "source_size": list(original),
         "exif_orientation": orientation, "orientation_applied": True,
+        "timestamp": capture_time if isinstance(capture_time, str) else None, "exif_focal": focal_tags,
     })
 
 

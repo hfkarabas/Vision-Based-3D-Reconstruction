@@ -9,14 +9,13 @@ import warnings
 
 import cv2
 import numpy as np
-from PIL import Image
 
 from vision3d.features.cache import cached_extract
 from vision3d.features.matching import match
 from vision3d.geometry import verify
-from vision3d.geometry.camera import Camera, approximate_camera, load_cameras
+from vision3d.geometry.camera import approximate_camera, infer_camera, load_calibration, named_camera
 from vision3d.geometry.two_view import Quality, ReconstructionRejected
-from vision3d.io import iter_frames
+from vision3d.io import image_paths, load_image
 from vision3d.preprocessing import preprocess
 from .bundle import BundleOptions, local_bundle_adjust
 from .incremental import RegistrationQuality, extend_landmarks, initialize, landmark_diagnostics, measure_landmarks, register, registration_priority, select_initial, validate_landmarks
@@ -90,15 +89,15 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                          detector="sift", max_dimension=1600, max_features=6000, ratio=0.75,
                          window=2, long_gap=4, max_images=30, min_registered=5, local_ba=False,
                          quality_config=None, seed=0, feature_cache=None, recovery_pairs=0, joint_ba=False,
-                         refine_points=False):
+                         refine_points=False, auto_intrinsics=False):
     start = perf_counter()
     stages = {k: 0.0 for k in ("loading_preprocessing", "features", "matching", "tracks", "initial_pair",
                                "registration", "triangulation", "bundle_adjustment", "validation", "export")}
     feature_extraction_seconds = cache_hits = 0
-    if not Path(input_path).is_dir():
+    if isinstance(input_path, (str, Path)) and not Path(input_path).is_dir():
         raise ValueError("Sequence input must be an ordered JPEG/PNG directory")
-    if (camera is None) == (not approximate):
-        raise ValueError("Choose a camera configuration or explicit approximate intrinsics")
+    if sum((camera is not None, approximate, auto_intrinsics)) != 1:
+        raise ValueError("Choose a camera configuration, automatic intrinsics or explicit approximate intrinsics")
     if not approximate and (focal_px is not None or fov_degrees is not None):
         raise ValueError("Focal/FOV assumptions require explicit approximate intrinsics")
     if not 1 <= window <= 10 or not 0 <= long_gap <= 30 or not 2 <= max_images <= 50 or min_registered < 2:
@@ -110,44 +109,35 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
     if not isinstance(recovery_pairs, int) or not 0 <= recovery_pairs <= 30:
         raise ValueError('Recovery pair budget must be 0..30')
     geometry, pnp_quality, bundle = load_quality(quality_config)
+    candidates = image_paths(input_path)
+    if len(candidates) > max_images:
+        raise ValueError("Image limit exceeded; select a smaller directory or increase --max-images")
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     cv2.setRNGSeed(seed)
     cv2.setNumThreads(1)
-    camera_data = json.loads(Path(camera).read_text()) if camera else None
-    per_image = camera_data.get("images") if isinstance(camera_data, dict) else None
-    if camera_data is not None and per_image is None:
-        shared = load_cameras(camera)
-        if shared[0].to_dict() != shared[1].to_dict():
-            raise ValueError("Sequence calibration uses one shared camera or an images mapping, not a two-camera pair")
-        shared = shared[0]
+    mapping, explicit = load_calibration(camera) if camera is not None else (None, None)
+    if mapping is not None and len({p.name for p in candidates}) != len(candidates):
+        raise ValueError("Per-image calibration requires unique input filenames")
     views, skipped, intrinsics = {}, [], []
-    candidates = sorted((p for p in Path(input_path).iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png"}),
-                        key=lambda p: (p.name.casefold(), p.name))
-    source_order = {p.name: i for i, p in enumerate(candidates)}
-    if len(candidates) > max_images:
-        raise ValueError("Image limit exceeded; select a smaller directory or increase --max-images")
     loading_start = perf_counter()
-    for i, frame in enumerate(iter_frames(input_path, errors=skipped)):
-        if i >= max_images:
-            raise ValueError("Image limit exceeded; choose a smaller subset or increase --max-images (maximum 50)")
-        path = Path(frame.metadata["source"])
+    for source_index, path in enumerate(candidates):
+        try:
+            frame = load_image(path)
+        except ValueError as exc:
+            skipped.append(str(exc))
+            warnings.warn(str(exc), stacklevel=2)
+            continue
+        i = len(views)
         h, w = frame.image.shape[:2]
-        if camera is None:
-            model = approximate_camera(w, h, focal_px, fov_degrees)
-        elif per_image is not None:
-            if path.name not in per_image:
-                raise ValueError(f"Missing calibration for {path.name}")
-            value = dict(per_image[path.name])
-            matrix = value.pop("K", None)
-            try:
-                model = Camera(**value)
-            except TypeError as exc:
-                raise ValueError(f"Invalid calibration for {path.name}: {exc}") from exc
-            if matrix is not None and not np.allclose(matrix, model.K):
-                raise ValueError("K conflicts with scalar intrinsics")
+        if mapping is not None:
+            model = named_camera(mapping, path.name)
+        elif explicit:
+            model = explicit[0]
+        elif auto_intrinsics:
+            model = infer_camera(w, h, frame.metadata)
         else:
-            model = shared
+            model = approximate_camera(w, h, focal_px, fov_degrees)
         if (model.width, model.height) != (w, h):
             raise ValueError(f"Camera dimensions differ from EXIF-oriented input: {path.name}")
         if model.approximate:
@@ -160,10 +150,7 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
         feature_extraction_seconds += features.seconds
         cache_hits += int(cache_hit)
         scaled = model.resized(image.shape[1], image.shape[0])
-        with Image.open(path) as source:
-            exif = source.getexif()
-            timestamp = exif.get_ifd(34665).get(36867, exif.get(306))
-        metadata = {**frame.metadata, "sequence_index": i, "source_order_index": source_order[path.name], "timestamp": timestamp,
+        metadata = {**frame.metadata, "sequence_index": i, "source_order_index": source_index,
                     "sha256": content_hash, "resize": resize, "feature_cache_hit": cache_hit}
         views[i] = View(i, path.name, scaled, features,
                         sample_colors(frame.image, features.points, resize), metadata)
@@ -180,6 +167,7 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                            "min_registered": min_registered, "local_ba": local_ba, "seed": seed,
                            "opencv_threads": 1, "feature_cache": str(Path(feature_cache).resolve()) if feature_cache else None,
                            "recovery_pairs": recovery_pairs, "joint_ba": joint_ba, "refine_points": refine_points,
+                            "auto_intrinsics": auto_intrinsics,
                            "geometry": asdict(geometry), "registration": asdict(pnp_quality), "bundle": asdict(bundle)},
                 "versions": {n: importlib.metadata.version(n) for n in ("vision3d", "numpy", "scipy", "opencv-contrib-python", "open3d")}}
     write_json(output / "manifest.json", manifest)

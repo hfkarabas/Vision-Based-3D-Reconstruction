@@ -13,7 +13,7 @@ import numpy as np
 
 from vision3d.features import extract
 from vision3d.features.matching import match
-from vision3d.geometry.camera import approximate_camera, load_cameras
+from vision3d.geometry.camera import approximate_camera, infer_camera, load_calibration, named_camera
 from vision3d.geometry.two_view import Quality, ReconstructionRejected, reconstruct
 from vision3d.io import load_image
 from vision3d.preprocessing import preprocess
@@ -76,19 +76,24 @@ def preview_cloud(path, xyz, colors, rotation, translation):
 
 def reconstruct_pair(image1, image2, output, camera=None, approximate=False, focal_px=None,
                      fov_degrees=None, detector="sift", max_dimension=1600, max_features=6000,
-                     ratio=0.75, seed=0, quality=Quality(), preview=False):
+                     ratio=0.75, seed=0, quality=Quality(), preview=False, auto_intrinsics=False):
     start = perf_counter()
-    if (camera is None) == (not approximate):
-        raise ValueError("Choose --camera or explicit --approximate-intrinsics")
+    if sum((camera is not None, approximate, auto_intrinsics)) != 1:
+        raise ValueError("Choose --camera, --auto-intrinsics or explicit --approximate-intrinsics")
     if not approximate and (focal_px is not None or fov_degrees is not None):
         raise ValueError("Focal/FOV assumptions require --approximate-intrinsics")
     cv2.setRNGSeed(seed)
     cv2.setNumThreads(1)
     originals = [load_image(image1), load_image(image2)]
     if camera is not None:
-        cameras = load_cameras(camera)
+        mapping, cameras = load_calibration(camera, pair=True)
+        if mapping is not None:
+            cameras = [named_camera(mapping, Path(f.metadata["source"]).name) for f in originals]
         if any(c.approximate for c in cameras):
             warnings.warn("Camera configuration declares approximate intrinsics; reliability is reduced", stacklevel=2)
+    elif auto_intrinsics:
+        cameras = [infer_camera(f.image.shape[1], f.image.shape[0], f.metadata) for f in originals]
+        warnings.warn("Automatic intrinsics are estimates; inspect intrinsics.json for per-image provenance", stacklevel=2)
     else:
         cameras = [approximate_camera(f.image.shape[1], f.image.shape[0], focal_px, fov_degrees) for f in originals]
     processed, resizes, scaled = [], [], []
@@ -150,7 +155,10 @@ def reconstruct_pair(image1, image2, output, camera=None, approximate=False, foc
     # Original observations are recoverable exactly via the inverse resize transform.
     if preview:
         preview_cloud(output / "sparse_preview.png", xyz, colors, rotation, translation)
-    metrics.update(result["metrics"], status="success", runtime_seconds=perf_counter() - start,
+    metrics.update(result["metrics"], status="success", input_images=2, registered_images=2,
+                   valid_landmarks=len(xyz), rejected_images=[],
+                   rms_reprojection_error_px=float(np.sqrt(np.mean(result["errors_px"][valid] ** 2))),
+                   runtime_seconds=perf_counter() - start,
                    peak_memory_bytes=None, memory_basis="process lifetime peak working set when available")
     try:
         import psutil
