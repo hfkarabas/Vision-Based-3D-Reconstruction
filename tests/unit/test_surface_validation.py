@@ -3,6 +3,7 @@ import open3d as o3d
 import pytest
 
 from vision3d.reconstruction.surface_validation import repair_winding, sampled_deviation, topology
+from scripts.experiment_surface_seams import weld_boundary_seams
 
 
 def plane(z, inconsistent=False):
@@ -26,3 +27,18 @@ def test_surface_deviation_detects_parallel_offset():
     report = sampled_deviation(plane(0), plane(.02), samples=1000)
     assert report["distance_p50_p95_p99"] == pytest.approx([.02] * 3, abs=1e-7)
     assert report["unsigned_normal_angle_p50_p95_deg"] == pytest.approx([0.] * 2, abs=.03)
+
+
+def test_seam_join_keeps_all_faces_and_refuses_offset_surfaces():
+    def surface(z):
+        mesh = plane(0) + plane(z).translate([1.01, 0, 0])
+        mesh.paint_uniform_color([.2, .3, .4])
+        return mesh
+
+    candidate, report = weld_boundary_seams(surface(0), .02)
+    assert report == {"joined_edge_pairs": 1, "merged_vertices": 2}
+    assert topology(candidate)[1]["components"] == 1
+    assert len(candidate.triangles) == 4
+    separated, report = weld_boundary_seams(surface(.01), .02)
+    assert report["joined_edge_pairs"] == 0
+    assert topology(separated)[1]["components"] == 2
