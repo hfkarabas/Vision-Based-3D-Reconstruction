@@ -324,3 +324,75 @@ def test_seed_probe_accepts_a_third_pose_without_mutating_live_state(scene):
     assert diagnostics[0]["best_third_view_support"] > 80
     assert diagnostics[0]["continuation_probes"][-1]["reason"] == "accepted"
     assert not state.poses and not state.landmarks
+
+
+def test_seed_portfolio_rolls_out_real_geometry_and_leaves_input_state_untouched(scene):
+    from vision3d.geometry.two_view import Quality
+    from vision3d.reconstruction.incremental import RegistrationQuality
+    from vision3d.reconstruction.seed_search import search_seeds
+
+    state, _, poses = scene
+    links = np.column_stack((np.arange(100), np.arange(100)))
+    pairs = {(0, 1): links, (0, 4): links, (1, 3): links}
+    positions = {i: pose.center for i, pose in poses.items()}
+    tracks_before = {i: dict(track.observations) for i, track in state.tracks.items()}
+
+    def search(baseline, ranked, diagnostics):
+        return search_seeds(baseline, ranked, diagnostics, state.views, state.tracks, Quality(),
+                            RegistrationQuality(), 0, positions, .51, 2, 3)
+
+    initial, diagnostics = select_initial(state.views, pairs, tracks=state.tracks, search=search)
+    trials = [d["seed_search"] for d in diagnostics if "seed_search" in d]
+    assert len(trials) == 2
+    assert all(len(t["registered"]) == 5 and t["landmarks"] >= 95 for t in trials)
+    assert sum(t.get("selected", False) for t in trials) == 1
+    assert not state.poses and not state.landmarks
+    assert tracks_before == {i: t.observations for i, t in state.tracks.items()}
+    initialize(state, initial)
+    assert validate_landmarks(state)["invalid_observations"] == 0
+
+
+def test_quality_pnp_sample_cannot_hide_full_set_outliers(scene):
+    state, xyz, poses = scene
+    camera = state.views[4].camera
+    true = state.views[4].features.points
+    rng = np.random.default_rng(943)
+    pixels = rng.uniform([0, 0], [999, 799], true.shape)
+    pixels[:35] = true[:35]
+    pose, mask, stats = estimate_pnp(xyz, pixels, camera, sample=np.arange(35))
+    assert pose is None and stats["reason"] == "pnp_quality_rejected"
+    assert stats["sample_ransac_inliers"] == 35
+    assert mask.sum() == stats["inliers"] == 35
+    assert stats["inlier_ratio"] == .35
+    pixels[:55] = true[:55]
+    pose, _, stats = estimate_pnp(xyz, pixels, camera, sample=np.arange(35))
+    assert stats["reason"] == "accepted" and stats["inliers"] == 55
+    assert np.allclose(pose.center, poses[4].center, atol=1e-4)
+
+
+def test_explicit_seed_replays_valid_geometry_and_rejects_degenerate_pair(scene):
+    from vision3d.geometry.two_view import ReconstructionRejected
+
+    state, _, _ = scene
+    state.views[2].features = replace(state.views[2].features, points=state.views[0].features.points.copy())
+    links = np.column_stack((np.arange(100), np.arange(100)))
+    pairs = {(0, 1): links, (0, 2): links, (1, 4): links}
+    initial, _ = select_initial(state.views, pairs, tracks=state.tracks, required_pair=(1, 4))
+    assert initial[1:3] == (1, 4)
+    with pytest.raises(ReconstructionRejected, match="requested_seed_failed_geometric_verification"):
+        select_initial(state.views, pairs, tracks=state.tracks, required_pair=(0, 2))
+
+
+def test_preinitialization_bridge_screen_uses_geometry_and_distinct_station_budgets(scene):
+    from vision3d.reconstruction.graph import bridge_schedule
+
+    state, _, _ = scene
+    rng = np.random.default_rng(93)
+    descriptors = rng.normal(size=(100, 128)).astype(np.float32)
+    for view in state.views.values():
+        view.features = replace(view.features, descriptors=descriptors)
+    labels = {0: 0, 1: 0, 2: 1, 3: 1, 4: 2}
+    schedule = bridge_schedule(state.views, labels, {(0, 2)}, 3, .8, 1., .999, 0)
+    assert len(schedule) == 3
+    assert len({tuple(sorted((labels[i], labels[j]))) for i, j, _ in schedule}) == 3
+    assert all((i, j) != (0, 2) and support >= 20 for i, j, support in schedule)

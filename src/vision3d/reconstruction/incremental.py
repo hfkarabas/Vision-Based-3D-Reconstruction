@@ -25,7 +25,8 @@ class RegistrationQuality:
             raise ValueError("Invalid PnP quality thresholds")
 
 
-def select_initial(views, pairs, quality=Quality(), tracks=None, seed=0, continuation_min=None, probe_quality=None):
+def select_initial(views, pairs, quality=Quality(), tracks=None, seed=0, continuation_min=None, probe_quality=None,
+                   search=None, required_pair=None):
     """Rank only geometrically accepted pairs, using support, angle and cheirality."""
     from collections import Counter
 
@@ -62,6 +63,12 @@ def select_initial(views, pairs, quality=Quality(), tracks=None, seed=0, continu
             diagnostics[-1]["best_third_view_support"] = max(support.values(), default=0)
     if not candidates:
         raise ReconstructionRejected("no_geometrically_valid_initial_pair", {"initial_candidates": diagnostics})
+    if required_pair is not None:
+        chosen = next((c for c in candidates if c[1:3] == required_pair), None)
+        if chosen is None:
+            raise ReconstructionRejected("requested_seed_failed_geometric_verification",
+                                         {"requested_pair": required_pair, "initial_candidates": diagnostics})
+        return chosen, diagnostics
     viable = {(d["pair"][0], d["pair"][1]) for d in diagnostics
               if continuation_min is not None and d.get("best_third_view_support", 0) >= continuation_min}
     ranked = sorted(candidates, key=lambda c: ((c[1], c[2]) in viable, c[0], -c[1], -c[2]), reverse=True)
@@ -86,8 +93,9 @@ def select_initial(views, pairs, quality=Quality(), tracks=None, seed=0, continu
                 accepted, metrics = register(trial, k, probe_quality, quality)
                 attempts.append({"image_id": k, **metrics})
                 if accepted:
-                    return candidate, diagnostics
-    return ranked[0], diagnostics
+                    return (search(candidate, ranked, diagnostics) if search else candidate), diagnostics
+    baseline = ranked[0]
+    return (search(baseline, ranked, diagnostics) if search else baseline), diagnostics
 
 
 def observation_quality(state, xyz, image_id, feature_id, max_error):
@@ -214,7 +222,7 @@ def pnp_correspondences(state, image_id):
     return ids, np.asarray(xyz, np.float64).reshape(-1, 3), np.asarray(pixels, np.float64).reshape(-1, 2)
 
 
-def estimate_pnp(xyz, pixels, camera, quality=RegistrationQuality()):
+def estimate_pnp(xyz, pixels, camera, quality=RegistrationQuality(), sample=None):
     xyz, pixels = np.asarray(xyz, np.float64), np.asarray(pixels, np.float64)
     metrics = {"correspondences": len(xyz), "pnp_attempted": False}
     if xyz.shape != (len(xyz), 3) or pixels.shape != (len(xyz), 2) or not np.isfinite(xyz).all() or not np.isfinite(pixels).all():
@@ -225,12 +233,23 @@ def estimate_pnp(xyz, pixels, camera, quality=RegistrationQuality()):
         return None, np.zeros(len(xyz), bool), {**metrics, "reason": "insufficient_or_collinear_2d3d"}
     try:
         metrics["pnp_attempted"] = True
-        ok, rvec, tvec, indices = cv2.solvePnPRansac(xyz, pixels, camera.K, camera.D,
+        sample_xyz, sample_pixels = (xyz, pixels) if sample is None else (xyz[sample], pixels[sample])
+        ok, rvec, tvec, indices = cv2.solvePnPRansac(sample_xyz, sample_pixels, camera.K, camera.D,
             iterationsCount=quality.iterations, reprojectionError=quality.max_error_px,
-            confidence=0.999, flags=cv2.SOLVEPNP_EPNP)
+            confidence=0.999, flags=cv2.SOLVEPNP_EPNP if sample is None else cv2.SOLVEPNP_AP3P)
         metrics["ransac_inliers"] = 0 if indices is None else len(indices)
         if not ok or indices is None or len(indices) < quality.min_inliers:
             return None, np.zeros(len(xyz), bool), {**metrics, "reason": "pnp_ransac_failed"}
+        if sample is not None:
+            metrics["sample_ransac_inliers"] = len(indices)
+            rotation = cv2.Rodrigues(rvec)[0]
+            translation = tvec.ravel()
+            errors = np.linalg.norm(project(xyz, camera, rotation, translation) - pixels, axis=1)
+            depths = (xyz @ rotation.T + translation)[:, 2]
+            indices = np.flatnonzero((errors <= quality.max_error_px) & (depths > 1e-9))
+            metrics["ransac_inliers"] = len(indices)
+            if len(indices) < quality.min_inliers:
+                return None, np.zeros(len(xyz), bool), {**metrics, "reason": "pnp_full_support_failed"}
         rvec, tvec = cv2.solvePnPRefineLM(xyz[indices.ravel()], pixels[indices.ravel()], camera.K, camera.D, rvec, tvec)
         rotation = cv2.Rodrigues(rvec)[0]
         translation = tvec.ravel()
@@ -252,11 +271,37 @@ def estimate_pnp(xyz, pixels, camera, quality=RegistrationQuality()):
         return None, np.zeros(len(xyz), bool), {**metrics, "reason": "pnp_solver_failed"}
 
 
-def register(state, image_id, quality=RegistrationQuality(), geometry=Quality()):
+def quality_sample(state, ids, pixels, camera, minimum):
+    """Balance image cells and favor landmarks with wider validated viewing rays."""
+    from collections import defaultdict
+
+    cells = np.clip(np.floor(pixels / [camera.width, camera.height] * 4).astype(int), 0, 3)
+    groups = defaultdict(list)
+    for index, (lid, cell) in enumerate(zip(ids, cells)):
+        landmark = state.landmarks[lid]
+        angle = max_ray_angle(state, landmark.xyz, landmark.observations)
+        groups[tuple(cell)].append((min(angle, 15.), len(landmark.observations), -index))
+    ordered = [sorted(group, reverse=True) for _, group in sorted(groups.items())]
+    interleaved = sorted((rank, -score, -count, -idx)
+                         for group in ordered for rank, (score, count, idx) in enumerate(group))
+    limit = max(minimum, (2 * len(ids) + 2) // 3)
+    return np.array([item[-1] for item in interleaved[:limit]], dtype=int)
+
+
+def register(state, image_id, quality=RegistrationQuality(), geometry=Quality(), quality_pnp=False):
     if image_id in state.poses:
         return False, {"reason": "already_registered"}
     ids, xyz, pixels = pnp_correspondences(state, image_id)
-    pose, mask, metrics = estimate_pnp(xyz, pixels, state.views[image_id].camera, quality)
+    camera = state.views[image_id].camera
+    pose, mask, metrics = estimate_pnp(xyz, pixels, camera, quality)
+    if pose is None and quality_pnp and metrics["pnp_attempted"]:
+        sample = quality_sample(state, ids, pixels, camera, quality.min_inliers)
+        pose, alternate_mask, alternate = estimate_pnp(xyz, pixels, camera, quality, sample)
+        if pose is not None:
+            mask, metrics = alternate_mask, {**alternate, "initial_hypothesis": metrics,
+                                             "hypothesis": "quality_sample_ap3p", "sample_count": len(sample)}
+        else:
+            metrics["quality_sample_hypothesis"] = {**alternate, "sample_count": len(sample)}
     metrics["invalid_or_ambiguous_associations_discarded"] = sum(image_id in state.tracks[tid].observations for tid in state.landmarks) - len(ids)
     if pose is None:
         return False, metrics

@@ -1,5 +1,10 @@
 """Bounded appearance-ranked pair discovery; only verified edges connect views."""
+import cv2
 import numpy as np
+
+from vision3d.features import Features
+from vision3d.features.matching import match
+from vision3d.geometry import verify
 
 
 def components(image_ids, pairs):
@@ -49,3 +54,43 @@ def discovery_candidate(views, verified_pairs, attempted, counts, signatures):
         return None
     _, distance, i, j = min(candidates)
     return i, j, distance
+
+
+def bridge_schedule(views, labels, attempted, budget, ratio, threshold, confidence, seed):
+    """Rank untested station bridges cheaply before full descriptor verification."""
+    coarse = {}
+    for i in sorted(labels):
+        features = views[i].features
+        if features.descriptors is None:
+            continue
+        ids = sorted(range(features.count), key=lambda k: (-features.keypoints[k].response, k))[:600]
+        coarse[i] = Features(tuple(features.keypoints[k] for k in ids), features.points[ids],
+                             features.descriptors[ids], features.dimensions, features.config, 0.0)
+    groups = {}
+    for i in coarse:
+        for j in coarse:
+            if j <= i or (i, j) in attempted or labels[i] == labels[j]:
+                continue
+            a, b = coarse[i], coarse[j]
+            matches = match(a, b, ratio=ratio, mutual=True, geometric=False).consistent
+            p = a.points[[m.queryIdx for m in matches]]
+            q = b.points[[m.trainIdx for m in matches]]
+            focal = min(views[i].camera.fx, views[i].camera.fy, views[j].camera.fx, views[j].camera.fy)
+            cv2.setRNGSeed((seed + i * 1009 + j * 9176) % 2147483647)
+            _, mask, _ = verify(views[i].camera.normalized(p) * focal, views[j].camera.normalized(q) * focal,
+                                threshold, confidence, method=cv2.USAC_MAGSAC)
+            support = int(mask.sum())
+            if support:
+                group = tuple(sorted((labels[i], labels[j])))
+                groups.setdefault(group, []).append((-support, i, j))
+    for candidates in groups.values():
+        candidates.sort()
+    selected = []
+    for rank in range(budget):
+        available = sorted(g[rank] for g in groups.values() if rank < len(g))
+        if not available:
+            break
+        selected.extend((i, j, -score) for score, i, j in available[:budget-len(selected)])
+        if len(selected) == budget:
+            break
+    return selected

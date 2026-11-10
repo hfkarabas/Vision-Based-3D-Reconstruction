@@ -31,3 +31,18 @@ Choose the original Vader folder, enable **Enhanced matching (experimental)**, t
 ## Next steps
 
 Capture another object sequence with smaller angular steps, fixed focal setting, even diffuse illumination and more overlap between the high and low orbits. Use larger coverage of distinctive features or a fixed textured surround, while preserving independent source masks for dense processing. To improve on this dataset without weakening geometry, investigate repeatable multi-view correspondences on the glossy helmet and better cross-orbit capture coverage. Validate intrinsics against independent calibration and require comparable reference-pose or reference-surface measurements before claiming better accuracy.
+
+## Map-aware recovery on the Vader video
+
+Sequence reconstruction can try untested pairs against registered views when ordinary pose registration stalls. Enable it with `--map-recovery-pairs 30 --map-recovery-rounds 3`. The default pair budget of zero disables it. The original `--recovery-pairs` still controls discovery before initialization. Map recovery preserves live landmark IDs, records aliases for retired unmapped tracks, and uses the existing pair verifier, PnP thresholds and triangulation gates. The desktop keeps its existing settings.
+
+The controlled comparison used the same 40 overlap-aware keyframes, camera JSON, SfM settings and initial pair `8–9`. Use a fresh output directory for each command.
+
+```powershell
+$frames = 'outputs/video-overlap-ab/overlap-aware/keyframes'
+$common = @('--input', "$frames/frames", '--camera', "$frames/camera.json", '--max-images', '50', '--window', '4', '--long-gap', '8', '--recovery-pairs', '30', '--verifier', 'magsac', '--probe-seeds', '--ratio', '0.80', '--local-ba', '--refine-points', '--seed', '0')
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence @common --output outputs/map-recovery-repeat/baseline
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence @common --output outputs/map-recovery-repeat/recovery --map-recovery-pairs 30 --map-recovery-rounds 3
+```
+
+The measured runs in `outputs/map-recovery-ab/` registered 5 and 8 cameras, with 388 and 570 landmarks respectively. Recovery verified 12 of 30 additional pairs across three rounds and left six graph components. Median/RMS reprojection error rose from 0.281/0.503 px to 0.325/0.571 px across the respective maps. Recovery itself took 3.08 s. The full runs took 42.20 and 44.44 s. See `metrics.json` for per-round support changes, `pairs.json` for pair outcomes and `poses.json` for PnP outcomes. Ground-truth poses are unavailable.

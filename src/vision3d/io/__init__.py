@@ -31,8 +31,10 @@ def load_image(path: Path) -> Frame:
     path = Path(path)
     try:
         with Image.open(path) as source:
-            if source.format not in {"JPEG", "PNG"}:
+            if source.format not in {"JPEG", "PNG", "MPO"}:
                 raise ValueError(f"Unsupported image format: {path}")
+            if source.format == "MPO":
+                source.seek(0)  # The primary photograph precedes any embedded preview.
             original = source.size
             exif = source.getexif()
             orientation = exif.get(274, 1)

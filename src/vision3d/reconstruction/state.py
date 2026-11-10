@@ -65,6 +65,17 @@ class State:
     history: list = field(default_factory=list)
 
 
+def conflicting_images(left, right):
+    """Return images where two tracks assign different features."""
+    return {image for image in left.keys() & right.keys() if left[image] != right[image]}
+
+
+def track_counts(tracks):
+    lengths = Counter(len(t.observations) for t in tracks.values())
+    return {"tracks": len(tracks), "observations": sum(length * count for length, count in lengths.items()),
+            "length_distribution": dict(sorted(lengths.items())), "two_view_tracks": lengths[2]}
+
+
 def build_tracks(edges):
     """Edges must already be geometrically verified, in deterministic confidence order.
 
@@ -93,11 +104,12 @@ def build_tracks(edges):
         if a == b:
             duplicates += 1
             continue
-        if members[a].keys() & members[b].keys():
+        overlap = conflicting_images(members[a], members[b])
+        if overlap:
             conflicts += 1
             if len(rejected) < 1000:
                 rejected.append({"left": left, "right": right, "reason": "duplicate_image_in_component",
-                                 "conflicting_images": sorted(members[a].keys() & members[b].keys())})
+                                 "conflicting_images": sorted(overlap)})
             continue
         if b < a:
             a, b = b, a
@@ -105,8 +117,6 @@ def build_tracks(edges):
         members[a].update(members.pop(b))
     groups = sorted((m for m in members.values() if len(m) >= 2), key=lambda m: min(m.items()))
     tracks = {i: Track(i, dict(sorted(m.items()))) for i, m in enumerate(groups)}
-    return tracks, {"tracks": len(tracks), "observations": sum(len(t.observations) for t in tracks.values()),
-                    "length_distribution": dict(sorted(Counter(len(t.observations) for t in tracks.values()).items())),
-                    "conflicting_edges_rejected": conflicts, "duplicate_or_cycle_edges": duplicates,
-                    "conflict_examples": rejected, "conflict_examples_truncated": conflicts > len(rejected),
-                    "two_view_tracks": sum(len(t.observations) == 2 for t in tracks.values())}
+    return tracks, {**track_counts(tracks), "conflicting_edges_rejected": conflicts,
+                    "duplicate_or_cycle_edges": duplicates, "conflict_examples": rejected,
+                    "conflict_examples_truncated": conflicts > len(rejected)}
