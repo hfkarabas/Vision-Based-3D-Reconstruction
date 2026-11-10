@@ -40,7 +40,8 @@ def test_voxel_averages_both_geometry_and_color():
     assert np.allclose(rgb[0], [.5, .5, 0])
 
 
-def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path):
+@pytest.mark.parametrize("profile", ["fast", "uav"])
+def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile):
     camera = Camera(256, 192, 120, 120, 127.5, 95.5)
     base = np.random.default_rng(17).integers(0, 256, (192, 256, 3), dtype=np.uint8)
     source = tmp_path / "sparse"
@@ -62,11 +63,15 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path):
     for name, data in files.items():
         (source / name).write_text(json.dumps(data))
     out = tmp_path / "out"
-    result = reconstruct_multiview(source, out, profile="fast", mesh=True, glb=True)
+    result = reconstruct_multiview(source, out, profile=profile, mesh=True, glb=True, obj=True)
     assert result["depth_maps"] == 3 and len(result["fused_references"]) == 3
     assert result["checked_samples"] > result["dense_points"] > 1000
     assert result["mesh"]["multi_image_color_vertices"] > 100
     assert result["mesh"]["glb"]["status"] == "success"
+    assert result["mesh"]["obj"]["status"] == "success"
+    if profile == "uav":
+        assert result["mesh"]["open_manifold_edges"]
+        assert all(row["checked_samples"] > 100 for row in result["depth_support"])
     assert (out / "mesh.glb").stat().st_size
     with pytest.raises(FileExistsError):
         reconstruct_multiview(source, out)

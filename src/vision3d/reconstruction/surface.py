@@ -2,7 +2,7 @@
 import numpy as np
 
 
-def build_surface(xyz, colors, triangles, target_faces=None):
+def build_surface(xyz, colors, triangles, target_faces=None, *, max_edge=None):
     import open3d as o3d
 
     triangles = np.asarray(triangles, dtype=np.int32).reshape(-1, 3)
@@ -16,7 +16,14 @@ def build_surface(xyz, colors, triangles, target_faces=None):
         raise ValueError("No continuous corroborated depth supports a mesh")
     edges = np.asarray(mesh.vertices)[np.asarray(mesh.triangles)]
     area = np.linalg.norm(np.cross(edges[:, 1] - edges[:, 0], edges[:, 2] - edges[:, 0]), axis=1)
-    mesh.remove_triangles_by_mask(area <= 1e-14)
+    invalid = area <= 1e-14
+    removed_long = 0
+    if max_edge is not None:
+        lengths = np.linalg.norm(edges - np.roll(edges, 1, axis=1), axis=2)
+        long = (lengths > max_edge).any(axis=1)
+        removed_long = int((long & ~invalid).sum())
+        invalid |= long
+    mesh.remove_triangles_by_mask(invalid)
     if not mesh.has_triangles():
         raise ValueError("Surface triangles have negligible area")
     labels, sizes, _ = mesh.cluster_connected_triangles()
@@ -25,16 +32,38 @@ def build_surface(xyz, colors, triangles, target_faces=None):
     mesh.remove_unreferenced_vertices()
     if not mesh.has_triangles():
         raise ValueError("No connected surface with at least 32 triangles; try better overlap or a denser profile")
+    removed_nonmanifold = 0
+    if max_edge is not None:
+        before = len(mesh.triangles)
+        mesh.remove_non_manifold_edges()
+        removed_nonmanifold += before - len(mesh.triangles)
     if target_faces and len(mesh.triangles) > target_faces:
         mesh = mesh.simplify_quadric_decimation(target_faces)
+        if max_edge is not None:
+            edges = np.asarray(mesh.vertices)[np.asarray(mesh.triangles)]
+            long = (np.linalg.norm(edges - np.roll(edges, 1, axis=1), axis=2) > max_edge).any(axis=1)
+            mesh.remove_triangles_by_mask(long)
+            removed_long += int(long.sum())
+            before = len(mesh.triangles)
+            mesh.remove_non_manifold_edges()
+            removed_nonmanifold += before - len(mesh.triangles)
     mesh.remove_degenerate_triangles()
     mesh.remove_duplicated_triangles()
     mesh.remove_unreferenced_vertices()
+    if max_edge is not None and mesh.has_triangles():
+        labels, sizes, _ = mesh.cluster_connected_triangles()
+        mesh.remove_triangles_by_mask(np.asarray(sizes)[labels] < minimum)
+        mesh.remove_unreferenced_vertices()
+        if mesh.has_triangles():
+            mesh.orient_triangles()
     mesh.compute_vertex_normals()
     if not mesh.has_triangles() or not np.isfinite(np.asarray(mesh.vertex_normals)).all():
         raise ValueError("Mesh cleanup did not produce a finite surface")
     return mesh, {"vertices": len(mesh.vertices), "triangles": len(mesh.triangles),
                   "input_faces": len(triangles), "component_min_faces": minimum,
+                  "max_edge_world_units": max_edge, "long_faces_removed": removed_long,
+                  "nonmanifold_faces_removed": removed_nonmanifold,
+                  "open_manifold_edges": bool(mesh.is_edge_manifold(allow_boundary_edges=True)),
                   "closed_manifold_edges": bool(mesh.is_edge_manifold(allow_boundary_edges=False))}
 
 

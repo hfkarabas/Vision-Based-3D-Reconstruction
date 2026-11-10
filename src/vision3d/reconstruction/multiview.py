@@ -12,10 +12,11 @@ import numpy as np
 from vision3d.geometry.camera import parse_camera
 from vision3d.io import load_image
 from .pair import export_cloud, source_hash, write_json
-from .asset_export import export_glb
+from .asset_export import export_glb, export_obj
+from .dense_quality import landmark_visibility, spread_references, supported_samples
 from .state import Pose
 from .surface import build_surface, write_mesh_ply
-from .stereo import disparity_range, stereo_points, surface_triangles
+from .stereo import DisparitySearchLimit, disparity_range, stereo_points, surface_triangles
 
 
 @dataclass(frozen=True)
@@ -24,12 +25,23 @@ class DenseProfile:
     references: int
     attempts: int
     relative_depth: float
+    canvas_budget: int = 8_000_000
+    spread_views: bool = False
+    max_sparse_error_px: float | None = None
+    max_return_px: float | None = None
+    clean_surface: bool = False
+    preflight_pairs: bool = False
+    recenter_pairs: bool = False
+    recentered_witnesses: int = 1
 
 
 PROFILES = {
     "fast": DenseProfile(640, 8, 2, 0.025),
     "balanced": DenseProfile(900, 12, 3, 0.02),
     "high": DenseProfile(1200, 16, 4, 0.015),
+    "uav": DenseProfile(900, 18, 4, 0.02, canvas_budget=11_000_000, spread_views=True,
+                        max_sparse_error_px=2.5, max_return_px=1.5, clean_surface=True,
+                        preflight_pairs=True, recenter_pairs=True, recentered_witnesses=2),
 }
 
 
@@ -46,6 +58,19 @@ class DepthMap:
     xyz: np.ndarray
     colors: np.ndarray
     transposed: bool = False
+    recentered: bool = False
+
+
+@dataclass(frozen=True)
+class StereoPlan:
+    rotations: tuple
+    projections: tuple
+    disparity_to_depth: np.ndarray
+    vertical: bool
+    minimum: int
+    count: int
+    depth_bounds: tuple
+    recentered: bool
 
 
 def relative_pose(a, b):
@@ -54,16 +79,48 @@ def relative_pose(a, b):
     return rotation, b.translation - rotation @ a.translation
 
 
-def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse, object_masks=(None, None)):
+def recenter_rectification(local_a, local_b, p1, p2, size, axis):
+    """Center a virtual stereo canvas on shared geometry, keeping epipolar lines aligned."""
+    valid = np.isfinite(local_a).all(axis=1) & np.isfinite(local_b).all(axis=1)
+    valid &= (local_a[:, 2] > 0) & (local_b[:, 2] > 0)
+    if valid.sum() < 30:
+        raise ValueError("Too few shared positive-depth points to recenter rectification")
+    ua = local_a[valid, :2] / local_a[valid, 2:3]
+    ub = local_b[valid, :2] / local_b[valid, 2:3]
+    focal = p1[0, 0]
+    span = np.max([np.ptp(np.percentile(uv, [5, 95], axis=0), axis=0) for uv in (ua, ub)], axis=0)
+    disparity_span = np.ptp(np.percentile((ua - ub)[:, axis], [2, 98]))
+    disparity_budget = min(256, size[axis] // 2)
+    target_focal = min(focal, np.min(.85 * np.array(size) / np.maximum(span, 1e-9)),
+                       .6 * disparity_budget / max(disparity_span, 1e-9))
+    if target_focal < focal / 3:
+        raise ValueError("Shared rectification would require excessive downscaling")
+    center = (np.array(size) - 1) / 2
+    pa = center - target_focal * np.median(ua, axis=0)
+    pb = pa.copy()
+    pb[axis] = center[axis] - target_focal * np.median(ub[:, axis])
+    uv_a, uv_b = target_focal * ua + pa, target_focal * ub + pb
+    common = ((uv_a >= 0) & (uv_a < size) & (uv_b >= 0) & (uv_b < size)).all(axis=1)
+    if common.sum() < max(30, .6 * len(common)):
+        raise ValueError("Recentering does not preserve sufficient shared canvas coverage")
+    a, b = np.zeros((3, 4)), np.zeros((3, 4))
+    for projection, principal in ((a, pa), (b, pb)):
+        projection[:2, :2] = target_focal * np.eye(2)
+        projection[:2, 2] = principal
+        projection[2, 2] = 1
+    baseline = p2[axis, 3] / focal
+    b[axis, 3] = target_focal * baseline
+    offset = pa[axis] - pb[axis]
+    q = np.array([[1, 0, 0, -pa[0]], [0, 1, 0, -pa[1]], [0, 0, 0, target_focal],
+                  [0, 0, -1 / baseline, offset / baseline]])
+    return a, b, q, offset
+
+
+def plan_depth(a, b, camera_a, camera_b, sparse, *, recenter=False):
+    """Preflight rectification and the bounded disparity search without decoding images."""
     size = (camera_a.width, camera_a.height)
-    object_a, object_b = object_masks
-    # stereoRectify uses one canvas size. Preserve each source's pixel geometry
-    # when mapping a differently sized source onto that canvas.
     if (camera_b.width, camera_b.height) != size:
-        right = cv2.resize(right, size, interpolation=cv2.INTER_LINEAR)
         camera_b = camera_b.resized(*size)
-        if object_b is not None:
-            object_b = cv2.resize(object_b, size, interpolation=cv2.INTER_NEAREST)
     r, t = relative_pose(a, b)
     if np.linalg.norm(t) < 1e-8:
         raise ValueError("negligible baseline")
@@ -76,10 +133,33 @@ def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse,
     axis = int(vertical)
     rectified_rotation = r1 @ a.rotation
     rectified_translation = r1 @ a.translation
-    z = (sparse @ rectified_rotation.T + rectified_translation)[:, 2]
+    local_a = sparse @ rectified_rotation.T + rectified_translation
+    offset = 0
+    if recenter:
+        local_b = (sparse @ b.rotation.T + b.translation) @ r2.T
+        p1, p2, q, offset = recenter_rectification(local_a, local_b, p1, p2, size, axis)
+    z = local_a[:, 2]
     z = z[np.isfinite(z) & (z > 0)]
-    minimum, count = disparity_range(-p2[axis, 3] / z, size[axis])
+    minimum, count = disparity_range(offset - p2[axis, 3] / z, size[axis])
     near, far = np.percentile(z, [2, 98])
+    return StereoPlan((r1, r2), (p1, p2), q, bool(vertical), minimum, count, (near * .65, far * 1.55), recenter)
+
+
+def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse, object_masks=(None, None), *, plan=None):
+    size = (camera_a.width, camera_a.height)
+    object_a, object_b = object_masks
+    if plan is None:
+        plan = plan_depth(a, b, camera_a, camera_b, sparse)
+    # Stereo rectification uses one canvas, so scale the source model with its pixels.
+    if (camera_b.width, camera_b.height) != size:
+        right = cv2.resize(right, size, interpolation=cv2.INTER_LINEAR)
+        camera_b = camera_b.resized(*size)
+        if object_b is not None:
+            object_b = cv2.resize(object_b, size, interpolation=cv2.INTER_NEAREST)
+    r1, r2 = plan.rotations
+    p1, p2 = plan.projections
+    q = plan.disparity_to_depth
+    vertical = plan.vertical
     images, masks = [], []
     for image, camera, rect, projection, object_mask in ((left, camera_a, r1, p1, object_a),
                                                         (right, camera_b, r2, p2, object_b)):
@@ -94,14 +174,14 @@ def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse,
         masks = [mask.T for mask in masks]
         q = q[:, [1, 0, 2, 3]]
         projection = projection[[1, 0, 2], :]
-    local, colors, pixels = stereo_points(*images, *masks, minimum, count, q, r1, (near * .65, far * 1.55))
+    local, colors, pixels = stereo_points(*images, *masks, plan.minimum, plan.count, q, r1, plan.depth_bounds)
     if len(local) < 100:
         raise ValueError("insufficient bidirectional disparity")
     depth = np.zeros(images[0].shape[:2], np.float32)
     depth[pixels[:, 0], pixels[:, 1]] = local @ r1[2]
     xyz = (local - a.translation) @ a.rotation
-    return DepthMap(reference, source, rectified_rotation, rectified_translation, projection,
-                    depth, images[0], pixels, xyz, colors, vertical)
+    return DepthMap(reference, source, r1 @ a.rotation, r1 @ a.translation, projection,
+                    depth, images[0], pixels, xyz, colors, vertical, plan.recentered)
 
 
 def corroborate(xyz, rgb, witness, tolerance):
@@ -153,13 +233,15 @@ def voxel_fuse(points, colors, size):
     return *fused, inverse
 
 
-def overlapping_pairs(landmarks, poses):
+def overlapping_pairs(landmarks, poses, visibility=None):
     pairs = defaultdict(list)
-    for landmark in landmarks:
+    for index, landmark in enumerate(landmarks):
         xyz = np.asarray(landmark["xyz"], dtype=float)
         if xyz.shape != (3,) or not np.isfinite(xyz).all():
             continue
         visible = sorted(set(map(int, landmark["observations"])) & poses.keys())
+        if visibility is not None:
+            visible = [i for i in visible if index in visibility[i]]
         for pair in combinations(visible, 2):
             pairs[pair].append(xyz)
     neighbors = defaultdict(list)
@@ -192,7 +274,7 @@ def rasterize_polygon(vertices, size):
 
 
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
-                          glb=False, stage=lambda name: None, object_masks=None):
+                          glb=False, stage=lambda name: None, object_masks=None, obj=False):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -204,6 +286,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
         raise ValueError("Target faces requires a mesh and must be at least 100")
     if glb and not mesh:
         raise ValueError("GLB export requires --mesh")
+    if obj and not mesh:
+        raise ValueError("OBJ export requires --mesh")
     settings = PROFILES[profile]
 
     def read(name):
@@ -223,13 +307,25 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
         poses[entry["image_id"]] = Pose(matrix[:3, :3], matrix[:3, 3])
     if len(poses) < 3:
         raise ValueError("At least three registered views are required for dense fusion")
-    neighbors = overlapping_pairs(read("landmarks.json"), poses)
-    selected = sorted(neighbors, key=lambda i: (-neighbors[i][0][0], i))[:settings.references]
+    landmarks = read("landmarks.json")
+    visibility = (landmark_visibility(landmarks, poses, settings.max_sparse_error_px)
+                  if settings.max_sparse_error_px is not None else None)
+    neighbors = overlapping_pairs(landmarks, poses, visibility)
+    if settings.spread_views:
+        selected = spread_references(neighbors, visibility, settings.references)
+    else:
+        selected = sorted(neighbors, key=lambda i: (-neighbors[i][0][0], i))[:settings.references]
     if len(selected) < 3:
         raise ValueError("Insufficient shared landmarks and parallax across three registered views")
 
     sources = {entry["image_id"]: entry for entry in manifest["inputs"]}
     original = {entry["image_id"]: parse_camera(entry["original"]) for entry in intrinsics}
+    cameras = {}
+    for i in neighbors:
+        camera = original[i]
+        scale = min(1, settings.dimension / max(camera.width, camera.height))
+        size = (round(camera.width * scale), round(camera.height * scale))
+        cameras[i] = camera.resized(*size)
     inputs = {}
     polygons = None
     if object_masks is not None:
@@ -247,12 +343,12 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
             camera = original[i]
             if (width, height) != (camera.width, camera.height):
                 raise ValueError("Source image dimensions disagree with sparse intrinsics")
-            scale = min(1, settings.dimension / max(width, height))
-            size = (round(width * scale), round(height * scale))
+            scaled = cameras[i]
+            size = (scaled.width, scaled.height)
             if min(size) < 64:
                 raise ValueError("Dense processing needs at least 64 pixels on each side")
             mask = rasterize_polygon(polygons[source["name"]], size) if polygons is not None else None
-            inputs[i] = cv2.resize(frame, size, interpolation=cv2.INTER_AREA), camera.resized(*size), mask
+            inputs[i] = cv2.resize(frame, size, interpolation=cv2.INTER_AREA), mask
         return inputs[i]
 
     cv2.setNumThreads(1)
@@ -261,31 +357,54 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     used_pixels = 0
     for index, reference in enumerate(selected, 1):
         stage(f"Estimating depth for reference {index}/{len(selected)}")
-        left, a, object_a = image(reference)
-        if used_pixels + a.width * a.height > 8_000_000:
+        a = cameras[reference]
+        if used_pixels + a.width * a.height > settings.canvas_budget:
             attempts.append({"reference": reference, "reason": "total depth-map pixel budget reached"})
             continue
-        for _, source, xyz in neighbors[reference][:settings.attempts]:
-            right, b, object_b = image(source)
+        depth_attempts = 0
+        candidates = [(source, xyz, False) for _, source, xyz in neighbors[reference]]
+        for source, xyz, recenter in candidates:
+            if depth_attempts == settings.attempts:
+                break
+            b, plan = cameras[source], None
+            if settings.preflight_pairs:
+                try:
+                    plan = plan_depth(poses[reference], poses[source], a, b, xyz, recenter=recenter)
+                except (ValueError, cv2.error) as exc:
+                    attempts.append({"reference": reference, "source": source, "reason": str(exc),
+                                     "preflight": True, "recentered": recenter})
+                    if settings.recenter_pairs and not recenter and isinstance(exc, DisparitySearchLimit):
+                        candidates.append((source, xyz, True))
+                    continue
+            depth_attempts += 1
+            left, object_a = image(reference)
+            right, object_b = image(source)
             try:
-                depth = make_depth(reference, source, poses[reference], poses[source], a, b, left, right, xyz, (object_a, object_b))
+                depth = make_depth(reference, source, poses[reference], poses[source], a, b, left, right, xyz,
+                                   (object_a, object_b), plan=plan)
             except (ValueError, cv2.error) as exc:
-                attempts.append({"reference": reference, "source": source, "reason": str(exc)})
+                attempts.append({"reference": reference, "source": source, "reason": str(exc), "recentered": recenter})
                 stage(f"Depth pair {reference}/{source} skipped: {exc}")
                 continue
             maps.append(depth)
             used_pixels += a.width * a.height
-            attempts.append({"reference": reference, "source": source, "depth_pixels": len(depth.xyz)})
+            attempts.append({"reference": reference, "source": source, "depth_pixels": len(depth.xyz),
+                             "recentered": recenter})
             break
     depth_seconds = perf_counter() - depth_start
     stage("Checking third-view depth and fusing world voxels")
     fusion_start = perf_counter()
-    accepted = checked_samples(maps, settings.relative_depth)
+    if settings.max_return_px is None:
+        accepted, support = checked_samples(maps, settings.relative_depth), None
+    else:
+        accepted, support = supported_samples(maps, settings.relative_depth, settings.max_return_px,
+                                              settings.recentered_witnesses)
     sample_count = sum(int(mask.sum()) for _, mask, _ in accepted)
     if len(accepted) < 2 or sample_count < 100:
         reason = f"Too little independent third-view support ({len(maps)} depth maps, {sample_count} samples)"
         output.mkdir(parents=True, exist_ok=False)
-        write_json(output / "metrics.json", {"status": "rejected", "reason": reason, "pair_attempts": attempts})
+        write_json(output / "metrics.json", {"status": "rejected", "reason": reason, "pair_attempts": attempts,
+                                             "depth_support": support, "settings": asdict(settings)})
         raise ValueError(reason)
     points = np.concatenate([depth.xyz[mask] for depth, mask, _ in accepted])
     colors = np.concatenate([rgb for _, _, rgb in accepted])
@@ -308,7 +427,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
             triangles.append(inverse[offset + local])
             offset += len(pixels)
         try:
-            surface, mesh_info = build_surface(xyz, colors, np.concatenate(triangles), target_faces)
+            surface, mesh_info = build_surface(xyz, colors, np.concatenate(triangles), target_faces,
+                                              max_edge=voxel * 6 if settings.clean_surface else None)
         except ValueError as exc:
             mesh_info = {"status": "rejected", "reason": str(exc)}
     mesh_seconds = perf_counter() - mesh_start
@@ -333,6 +453,24 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     export_start = perf_counter()
     output.mkdir(parents=True, exist_ok=False)
     export_cloud(output / "dense.ply", xyz, colors)
+    if support is not None:
+        coverage = output / "depth-coverage"
+        coverage.mkdir()
+        checked = {depth.reference: mask for depth, mask, _ in accepted}
+        for depth, record in zip(maps, support, strict=True):
+            mask = np.zeros(depth.depth.shape, np.uint8)
+            y, x = depth.pixels.T
+            mask[y, x] = 96
+            if depth.reference in checked:
+                rows = checked[depth.reference]
+                mask[y[rows], x[rows]] = 255
+            if depth.transposed:
+                mask = mask.T
+            ok, encoded = cv2.imencode(".png", mask)
+            if ok:
+                name = f"depth-coverage/ref-{depth.reference:04d}.png"
+                (output / name).write_bytes(encoded.tobytes())
+                record["coverage_mask"] = name
     if surface is not None:
         write_mesh_ply(output / "mesh.ply", surface)
         mesh_info.update(status="success", representation="vertex_colored_open_surface")
@@ -344,6 +482,14 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                 mesh_info["glb"] = {"status": "failed", "reason": str(exc)}
             else:
                 mesh_info["glb"] = {"status": "success", "axis_transform": [1, -1, -1], "color": "linear COLOR_0"}
+        if obj:
+            stage("Writing and independently reloading OBJ")
+            try:
+                export_obj(surface, output / "mesh.obj")
+            except (ValueError, OSError) as exc:
+                mesh_info["obj"] = {"status": "failed", "reason": str(exc)}
+            else:
+                mesh_info["obj"] = {"status": "success", "color": None, "normals": True}
     if polygons is not None:
         write_json(output / "object_masks.json", polygons)
     write_json(output / "poses.json", pose_records)
@@ -351,8 +497,12 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     metrics = {"status": "success", "representation": "dense_multiview", "source_sparse": str(sparse_dir.resolve()),
                "profile": profile, "settings": asdict(settings), "object_masks": bool(polygons), "registered_images": len(poses), "dense_points": len(xyz),
                "depth_maps": len(maps), "fused_references": [d.reference for d, _, _ in accepted],
+               "eligible_references": sorted(neighbors), "planned_references": selected, "depth_support": support,
                "raw_depth_samples": sum(len(d.xyz) for d in maps), "checked_samples": sample_count,
                "depth_canvas_pixels": used_pixels,
+               "coordinate_frame": "input SfM world, right/down/forward of the anchor camera",
+               "units": "arbitrary monocular scale",
+               "bounds": {"min": xyz.min(axis=0).tolist(), "max": xyz.max(axis=0).tolist()},
                "voxel_size": voxel, "pair_attempts": attempts, "mesh_requested": mesh,
                "approximate_intrinsics": any(original[i].approximate for d in maps for i in (d.reference, d.source)),
                "mesh": mesh_info,
