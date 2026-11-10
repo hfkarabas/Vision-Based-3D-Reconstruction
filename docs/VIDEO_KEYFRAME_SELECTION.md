@@ -1,0 +1,13 @@
+# Video keyframe selection
+
+Selection scans the entire MP4 in decode order. The default sample stride approximates four candidate frames per second and grows when necessary to cap scoring at 1200 candidates. OpenCV grabs intervening frames without retrieving them for scoring. Inter-frame codecs may still decode intermediate frames internally. Candidate images are scored at a maximum longest side of 640 px. Selected frames are retrieved again in order in a second pass and stored as PNGs at decoded resolution.
+
+1. Laplacian variance rejects blurred candidates below 18 by default. CLI `--min-sharpness` adjusts the gate. Scores depend on texture and scene lighting.
+2. Up to 700 SIFT features are requested. The candidate needs at least 45 detections by default and at least five occupied cells of a 4×4 grid. CLI `--min-features` adjusts the count threshold.
+3. Reciprocal descriptor matches against the last retained candidate measure overlap. At least 12 mutual matches with median displacement under 0.6% of the image diagonal signal a near duplicate. Stationary views can be rejected even when a nondegenerate fundamental matrix cannot be estimated.
+4. Otherwise, the fundamental verifier requires at least 12 inliers and a 25% inlier fraction at a 1.5 px tolerance in the reduced image. Weak overlap is skipped. A sustained loss can start a separate segment after at least three weak candidates and one second, if a nearby candidate supports the new view. Segments are recorded and do not imply a single connected camera graph.
+5. When the provisional sequence exceeds the cap, deterministic thinning spreads retained indices across its ordered extent, keeping both endpoints. This can remove useful intermediate overlap in a long, difficult orbit. There is no target minimum. A clip with fewer than two viable keyframes produces a clear rejection and selection diagnostics.
+
+The pixel displacement is a motion proxy. It cannot separate rotation, translation, independently moving subjects or a changing crop. SfM keeps its existing parallax, pose and reprojection gates. Image quality checks use reduced images, while camera models and reconstruction resizing use native decoded image coordinates and the existing pixel-center transform.
+
+`keyframes.json` records video metadata, nominal timestamps, options, per-sample feature counts, grid coverage, sharpness, overlap statistics and decision counts. The child process reports scoring and frame-writing stages to Tk. The existing cancel and shutdown paths terminate and reap the child. The API also accepts a cancellation callback for use outside the desktop.

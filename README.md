@@ -239,3 +239,9 @@ Start with **fast** for meshes. Higher profiles use more memory, and optional CL
 ### Difficult small photo sets
 
 **Enhanced matching (experimental)** in the desktop tests every pair for sequences of up to 30 photos, applies MAGSAC verification and probes candidate seeds for a third camera using the existing PnP gates. The equivalent CLI flags are `--exhaustive --verifier magsac --probe-seeds --ratio 0.80`. Use `--pair-cache DIR` to reuse reciprocal descriptor matches while recomputing geometry. The original local schedule is the default and is faster on ordered photos. For offline diagnostics, run `python scripts/sfm_diagnostics.py --run SPARSE_DIR --output NEW_DIR --keypoints`. For dense-only foreground selection, `dense-sequence --object-masks FILE.json` accepts normalized polygons keyed by registered filenames. See the [real-world investigation](docs/REAL_WORLD_SFM_IMPROVEMENTS.md) for measured gains and remaining limitations.
+
+## MP4 reconstruction
+
+Choose **Video…** in the desktop app to preview the decoded resolution, frame rate and nominal duration. **Video settings…** controls how often the selector evaluates a candidate and the maximum number of retained keyframes. The selector scores sharpness, feature coverage, overlap and image displacement before passing the selected views to SfM. Supply **Camera JSON** if you have calibration at the decoded video resolution. Otherwise, the run records its estimated focal length and lens assumptions. Select a multi-view profile for dense reconstruction, with optional colored mesh and GLB export when the registered views support it.
+
+Use `python -m vision3d.cli keyframes --help` for standalone extraction. See the [video workflow](docs/VIDEO_RECONSTRUCTION.md), [selection algorithm](docs/VIDEO_KEYFRAME_SELECTION.md) and [evaluation](docs/PHOTO_VS_VIDEO_EVALUATION.md) for reproduction commands and measured results.
