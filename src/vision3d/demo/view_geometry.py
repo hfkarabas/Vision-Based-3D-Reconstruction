@@ -47,4 +47,13 @@ def camera_frustum(matrix, intrinsic, width, height, size):
 def load_context(ply):
     folder = Path(ply).parent
     poses = json.loads((folder / 'poses.json').read_text(encoding='utf-8'))
+    if isinstance(poses, dict):
+        return [{"image_id": i, "world_to_camera": poses[f"world_to_camera{i + 1}"]} for i in range(2)]
     return [p for p in poses if p.get('status') == 'registered']
+
+
+def load_intrinsics(ply):
+    data = json.loads((Path(ply).parent / 'intrinsics.json').read_text(encoding='utf-8'))
+    if isinstance(data, dict):
+        return dict(enumerate(data["processed"]))
+    return {p["image_id"]: p["processed"] for p in data}

@@ -12,8 +12,7 @@ import uuid
 
 from PIL import Image, ImageOps
 
-
-SUFFIXES = {".jpg", ".jpeg", ".png"}
+from vision3d.io import image_paths
 
 
 def repository_root():
@@ -28,60 +27,38 @@ def supported_images(folder):
     folder = Path(folder).expanduser().resolve()
     if not folder.is_dir():
         raise ValueError("Select an existing image folder.")
-    return sorted((p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in SUFFIXES),
-                  key=lambda p: (p.name.casefold(), p.name))
+    return image_paths(folder)
 
 
-def validate_inputs(folder, camera):
-    """Decode one image at a time; validate EXIF-oriented dimensions against K."""
-    from vision3d.geometry.camera import Camera, load_cameras
-    files = supported_images(folder)
+def validate_inputs(selection, camera):
+    """Check readable files and the explicit model, if supplied, before starting a child."""
+    from vision3d.geometry.camera import load_calibration, named_camera
+    files = supported_images(selection) if isinstance(selection, (str, Path)) else image_paths(selection)
     if not 2 <= len(files) <= 30:
         raise ValueError("The demo accepts 2–30 JPEG/PNG files. Select a smaller subset if necessary.")
-    if not camera or not Path(camera).is_file():
-        raise ValueError("Select a camera calibration JSON before reconstruction.")
-    try:
-        data = json.loads(Path(camera).read_text(encoding="utf-8"))
-        mapping = data.get("images") if isinstance(data, dict) else None
-        if mapping is not None and not isinstance(mapping, dict):
-            raise ValueError("The images calibration field must be an object.")
-        if mapping is None:
-            a, b = load_cameras(camera)
-            if a.to_dict() != b.to_dict():
-                raise ValueError("Use shared intrinsics or a per-image mapping, not pair calibration.")
-        valid, skipped = [], []
-        for path in files:
-            try:
-                with Image.open(path) as im:
-                    if im.format not in {"JPEG", "PNG"}:
-                        raise OSError("Not a JPEG or PNG")
-                    im.load()
-                    size = ImageOps.exif_transpose(im).size
-            except (OSError, ValueError) as exc:
-                skipped.append(f"{path.name}: {exc}")
-                continue
-            if mapping is not None:
-                if path.name not in mapping:
-                    raise ValueError(f"Missing calibration for {path.name}.")
-                entry = dict(mapping[path.name])
-                matrix = entry.pop("K", None)
-                model = Camera(**entry)
-                if matrix is not None:
-                    import numpy as np
-                    if not np.allclose(matrix, model.K):
-                        raise ValueError(f"Conflicting K for {path.name}.")
-            else:
-                model = a
-            if model.approximate:
-                raise ValueError("This stable demo requires calibrated intrinsics; approximate mode remains CLI-only.")
-            if size != (model.width, model.height):
-                raise ValueError(f"Calibration dimensions do not match EXIF-oriented image {path.name}.")
-            valid.append(path)
-    except (TypeError, KeyError, OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Cannot validate camera calibration: {exc}") from exc
+    valid, skipped, sizes = [], [], []
+    for path in files:
+        try:
+            with Image.open(path) as im:
+                if im.format not in {"JPEG", "PNG"}:
+                    raise OSError("Not a JPEG or PNG")
+                im.load()
+                sizes.append(ImageOps.exif_transpose(im).size)
+                valid.append(path)
+        except (OSError, ValueError, SyntaxError) as exc:
+            skipped.append(f"{path.name}: {exc}")
     if len(valid) < 2:
         raise ValueError(f"At least two readable images are required; found {len(valid)}.")
-    return {"supported": len(files), "usable": len(valid), "skipped": skipped}
+    if camera:
+        try:
+            mapping, models = load_calibration(camera, pair=len(valid) == 2)
+            for index, (path, size) in enumerate(zip(valid, sizes)):
+                model = named_camera(mapping, path.name) if mapping is not None else models[min(index, 1)]
+                if size != (model.width, model.height):
+                    raise ValueError(f"Calibration dimensions do not match EXIF-oriented image {path.name}.")
+        except (TypeError, KeyError, OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Cannot validate camera calibration: {exc}") from exc
+    return {"supported": len(files), "usable": len(valid), "skipped": skipped, "files": [str(p) for p in valid]}
 
 
 def resolve_castle(root=None):
@@ -105,13 +82,18 @@ def allocate_run(base):
     return run
 
 
-def reconstruction_command(folder, camera, output):
-    # Stable registration/BA; independently checked final fixed-camera point refinement.
-    # The demo supports pairs as well as longer sequences; a pair requires two registrations.
-    minimum = min(5, len(supported_images(folder)))
-    return [sys.executable, "-u", "-m", "vision3d.cli", "reconstruct-sequence",
-            "--input", str(Path(folder).resolve()), "--camera", str(Path(camera).resolve()),
-            "--output", str(Path(output).resolve()), "--local-ba", "--refine-points", "--min-registered", str(minimum)]
+def reconstruction_command(selection, camera, output, *, max_dimension=1600):
+    folder = isinstance(selection, (str, Path))
+    files = supported_images(selection) if folder else image_paths(selection)
+    if len(files) == 2:
+        args = ["reconstruct-pair", "--image1", str(files[0]), "--image2", str(files[1])]
+    else:
+        args = ["reconstruct-sequence"]
+        args += ["--input", str(Path(selection).resolve())] if folder else ["--images", *map(str, files)]
+        args += ["--local-ba", "--refine-points", "--min-registered", str(min(5, len(files)))]
+    calibration = ["--camera", str(Path(camera).resolve())] if camera else ["--auto-intrinsics"]
+    return [sys.executable, "-u", "-m", "vision3d.cli", *args, *calibration,
+            "--output", str(Path(output).resolve()), "--max-dimension", str(max_dimension)]
 
 
 @dataclass(frozen=True)
@@ -121,10 +103,11 @@ class Result:
     landmarks: int
     seconds: float
     status: str
+    representation: str = "sparse"
 
     @property
     def ply(self):
-        return self.directory / "sparse.ply"
+        return self.directory / ("dense.ply" if self.representation == "dense_two_view_stereo" else "sparse.ply")
 
 
 def read_result(directory):
@@ -133,16 +116,18 @@ def read_result(directory):
         data = json.loads((directory / "metrics.json").read_text(encoding="utf-8"))
         if data.get("status") not in {"success", "partial"}:
             raise ValueError(data.get("reason", "Reconstruction was rejected."))
-        counts = [data["registered_images"], data["valid_landmarks"]]
+        representation = data.get("representation", "sparse")
+        dense = representation == "dense_two_view_stereo"
+        counts = [data["registered_images"], data["dense_points" if dense else "valid_landmarks"]]
         if any(isinstance(x, bool) or not isinstance(x, int) or x < 1 for x in counts):
             raise ValueError("Invalid camera or landmark counts in metrics.")
         seconds = float(data["runtime_seconds"])
         if not math.isfinite(seconds) or seconds < 0:
             raise ValueError("Invalid execution time in metrics.")
-        ply = directory / "sparse.ply"
-        if not ply.is_file() or ply.stat().st_size == 0:
-            raise ValueError("The result has no nonempty sparse.ply file.")
-        return Result(directory, *counts, seconds, data["status"])
+        result = Result(directory, *counts, seconds, data["status"], representation)
+        if not result.ply.is_file() or result.ply.stat().st_size == 0:
+            raise ValueError(f"The result has no nonempty {result.ply.name} file.")
+        return result
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise ValueError(f"Cannot read reconstruction result: {exc}") from exc
 
@@ -169,19 +154,19 @@ def child_options():
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
 
-def run_job(folder, camera, base, emit, stop):
+def run_job(folder, camera, base, emit, stop, max_dimension=1600):
     """Blocking worker function; only messages cross into the Tk main thread."""
     run = None
     try:
         emit("stage", "Validating readable images and calibration")
         validation = validate_inputs(folder, camera)
-        emit("validated", validation)
+        emit("validated", {**validation, "automatic_intrinsics": not bool(camera)})
         if stop.is_set():
             return
         run = allocate_run(base)
         output = run / "reconstruction"
         emit("run", str(run))
-        command = reconstruction_command(folder, camera, output)
+        command = reconstruction_command(validation["files"], camera, output, max_dimension=max_dimension)
         (run / "demo_request.json").write_text(json.dumps({"command": command, "validation": validation}, indent=2), encoding="utf-8")
         started = perf_counter()
         with (run / "reconstruction.log").open("w", encoding="utf-8") as log:
@@ -190,6 +175,8 @@ def run_job(folder, camera, base, emit, stop):
                 previous = None
                 while process.poll() is None:
                     stage = artifact_stage(output)
+                    if validation["usable"] == 2 and stage.startswith("Features prepared"):
+                        stage = "Pair features matched; estimating relative pose and triangulating"
                     if stage != previous:
                         emit("stage", stage)
                         previous = stage
@@ -209,6 +196,8 @@ def run_job(folder, camera, base, emit, stop):
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
+        if stop.is_set():
+            return
         elapsed = perf_counter() - started
         if process.returncode not in (0, 3):
             tail = (run / "reconstruction.log").read_text(encoding="utf-8", errors="replace")[-2400:]

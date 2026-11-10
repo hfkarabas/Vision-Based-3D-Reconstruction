@@ -21,6 +21,7 @@ class Camera:
     approximate: bool = False
     assumptions: str = ""
     coordinates: str = "exif_oriented"
+    confidence: str | None = None
 
     def __post_init__(self):
         if any(isinstance(v, bool) or not isinstance(v, int) or v < 2 for v in (self.width, self.height)):
@@ -39,6 +40,8 @@ class Camera:
         object.__setattr__(self, "distortion", tuple(self.distortion))
         if self.coordinates != "exif_oriented":
             raise ValueError("Calibration must describe EXIF-oriented pixels; raw sensor calibration is unsupported")
+        if self.confidence not in (None, "exif_estimate", "fallback"):
+            raise ValueError("Unknown intrinsics confidence")
         if (not isinstance(self.approximate, bool) or not isinstance(self.source, str) or not self.source
                 or not isinstance(self.assumptions, str) or (self.approximate and not self.assumptions)):
             raise ValueError("Calibration requires a source and explicit approximate assumptions")
@@ -71,25 +74,31 @@ class Camera:
         return {**asdict(self), "K": self.K.tolist()}
 
 
-def load_cameras(path):
-    """A single camera object or an object with camera1/camera2 entries."""
+def parse_camera(value):
+    fields = dict(value)
+    matrix = fields.pop("K", None)
+    camera = Camera(**fields)
+    if matrix is not None and (np.shape(matrix) != (3, 3) or
+                               not np.allclose(np.asarray(matrix, dtype=float), camera.K, rtol=1e-9, atol=1e-9)):
+        raise ValueError("K conflicts with scalar intrinsics")
+    return camera
+
+
+def _parse_pair(data):
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        def parse(value):
-            value = dict(value)
-            matrix = value.pop("K", None)
-            camera = Camera(**value)
-            if matrix is not None and not np.allclose(np.asarray(matrix), camera.K, rtol=1e-9, atol=1e-9):
-                raise ValueError("K conflicts with scalar intrinsics")
-            return camera
         if "camera1" in data:
             if set(data) != {"camera1", "camera2"}:
                 raise ValueError("Pair calibration requires exactly camera1 and camera2")
-            return parse(data["camera1"]), parse(data["camera2"])
-        camera = parse(data)
+            return parse_camera(data["camera1"]), parse_camera(data["camera2"])
+        camera = parse_camera(data)
         return camera, camera
-    except (TypeError, KeyError, json.JSONDecodeError) as exc:
+    except (TypeError, KeyError) as exc:
         raise ValueError(f"Invalid camera configuration: {exc}") from exc
+
+
+def load_cameras(path):
+    """A single camera object or an object with camera1/camera2 entries."""
+    return _parse_pair(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 def approximate_camera(width, height, focal_px=None, fov_degrees=None):
@@ -105,3 +114,60 @@ def approximate_camera(width, height, focal_px=None, fov_degrees=None):
                     source="explicit user approximation", approximate=True, assumptions=assumptions)
     warnings.warn("Approximate intrinsics reduce geometric reliability: " + assumptions, stacklevel=2)
     return camera
+
+
+def infer_camera(width: int, height: int, metadata: dict) -> Camera:
+    """Initialize oriented pinhole intrinsics from EXIF or a per-image diagonal prior."""
+    tags = metadata.get("exif_focal", {})
+    diagonal = np.hypot(width, height)
+    equivalent = tags.get("41989", 0)
+    focal = tags.get("37386", 0)
+    unit_mm = {2: 25.4, 3: 10.0, 4: 1.0, 5: 0.001}.get(tags.get("41488"))
+    plane_x, plane_y = tags.get("41486", 0), tags.get("41487", 0)
+    plane = None
+    # Focal-plane resolution can refer to the original uncropped pixel grid.
+    if (unit_mm and focal > 0 and min(plane_x, plane_y) > 0 and
+            [tags.get("40962"), tags.get("40963")] == metadata.get("source_size") and
+            tags.get("41988", 1) in (0, 1)):
+        plane = (focal * plane_x / unit_mm, focal * plane_y / unit_mm)
+        if metadata.get("exif_orientation") in (5, 6, 7, 8):
+            plane = plane[::-1]
+        if min(plane) < 0.2 * diagonal or max(plane) > 12 * diagonal or max(plane) / min(plane) > 1.1:
+            plane = None
+    estimate = diagonal * equivalent / np.hypot(36, 24) if 9 <= equivalent <= 500 else None
+    if plane and estimate and max(abs(v / estimate - 1) for v in plane) > 0.25:
+        source, focal_xy = "fallback (conflicting EXIF focal estimates)", None
+    elif estimate:
+        source, focal_xy = "EXIF 35 mm equivalent focal length", (estimate, estimate)
+    elif plane:
+        source, focal_xy = "EXIF focal length and focal-plane resolution", plane
+    else:
+        source, focal_xy = "fallback (missing or unusable focal EXIF)", None
+    confidence = "exif_estimate" if focal_xy else "fallback"
+    fx, fy = focal_xy if focal_xy else (diagonal, diagonal)
+    assumptions = "centered principal point, zero distortion; focal initialization only"
+    if confidence == "fallback":
+        assumptions += "; focal length equals image diagonal (~53 degree diagonal FOV)"
+    return Camera(width, height, float(fx), float(fy), (width - 1) / 2, (height - 1) / 2,
+                  source=source, approximate=True, assumptions=assumptions, confidence=confidence)
+
+
+def named_camera(mapping, name):
+    if name not in mapping:
+        raise ValueError(f"Missing calibration for {name}.")
+    return parse_camera(mapping[name])
+
+
+def load_calibration(path, *, pair=False):
+    """Return filename mapping or explicit model tuple, rejecting ambiguous schemas."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Camera calibration must be a JSON object")
+    if "images" in data:
+        if set(data) != {"images"} or not isinstance(data["images"], dict):
+            raise ValueError("Expected an images calibration object keyed by filename")
+        return data["images"], None
+    models = _parse_pair(data)
+    if not pair and models[0] != models[1]:
+        raise ValueError("Sequence calibration uses one shared camera or an images mapping, not a two-camera pair")
+    return None, models

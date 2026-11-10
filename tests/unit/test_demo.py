@@ -60,9 +60,13 @@ def test_insufficient_readable_images(tmp_path):
         support.validate_inputs(folder, camera(tmp_path / "camera.json"))
 
 
-def test_missing_calibration(tmp_path):
-    with pytest.raises(ValueError, match="calibration JSON"):
-        support.validate_inputs(images(tmp_path), "")
+def test_optional_calibration_routes_to_auto_pair(tmp_path):
+    folder = images(tmp_path)
+    validation = support.validate_inputs(folder, "")
+    command = support.reconstruction_command(validation["files"], "", tmp_path / "out")
+    assert validation["usable"] == 2
+    assert "reconstruct-pair" in command and "--auto-intrinsics" in command
+    assert "--local-ba" not in command and "--camera" not in command
 
 
 def test_invalid_calibration(tmp_path):
@@ -82,8 +86,7 @@ def test_calibration_dimensions_and_approximation(tmp_path):
         support.validate_inputs(folder, c)
     data.update(width=40, approximate=True, assumptions="assumed FOV")
     c.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match="approximate mode"):
-        support.validate_inputs(folder, c)
+    assert support.validate_inputs(folder, c)["usable"] == 2
 
 
 def test_per_image_calibration(tmp_path):
@@ -127,7 +130,7 @@ def test_stable_cli_configuration(tmp_path):
     assert "reconstruct-sequence" in command and "--local-ba" in command
     assert "--refine-points" in command
     assert "--recovery-pairs" not in command and "--joint-ba" not in command
-    assert command[-1] == "5"
+    assert command[command.index("--min-registered") + 1] == "5"
     assert command[command.index("--input") + 1] == str(folder.resolve())
 
 

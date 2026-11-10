@@ -1,7 +1,7 @@
 # Vision-Based-3D-Reconstruction
 Camera-independent 3D reconstruction from real-world images and videos using computer vision and Structure-from-Motion.
 
-This Computer Engineering graduation project aims to produce usable 3D assets from photographs or video without ground-truth camera poses, Unity, simulators, or COLMAP as its processing engine. The current implementation covers input, preprocessing, features, matching, two-view reconstruction and **incremental sparse multi-view SfM with bounded local bundle adjustment**. Dense reconstruction, meshing, texturing and an application GUI are not implemented.
+This Computer Engineering graduation project aims to produce usable 3D assets from photographs or video without ground-truth camera poses, Unity, simulators, or COLMAP as its processing engine. The current implementation covers input, preprocessing, features, matching, two-view reconstruction and **incremental sparse multi-view SfM with bounded local bundle adjustment**. A local desktop GUI handles sparse reconstruction. An opt-in calibrated two-view stereo mode can also produce a dense cloud and an open vertex-colored mesh.
 
 ## Setup (Windows / Python 3.12)
 
@@ -56,7 +56,7 @@ See [the matching report](docs/TASK01_REPORT.md), [the two-view report](docs/TAS
 
 RANSAC can fit misleading geometry for moving subjects, planar scenes, pure rotation, repeated texture, or small baselines. High match counts are not evidence of usable camera geometry or successful reconstruction. Blur scores are descriptive and do not automatically reject frames. Truncated videos may appear as early decoder EOF; codec support depends on the OpenCV build. Failed runs may leave partial diagnostics. Timing excludes interpreter startup and final JSON/CSV serialization and is not a controlled benchmark. The target i5-11400H/GTX 1650 machine has not been separately tested.
 
-Next stages: broader camera/dataset validation, track refinement and stronger local optimization coverage. Dense reconstruction, meshing, OBJ/GLB export and adaptive frame selection are later work. An interactive local sparse-reconstruction demo is available below.
+Next stages: broader camera/dataset validation, track refinement and stronger local optimization coverage. Multi-view dense fusion, UV texturing, OBJ/GLB export and adaptive frame selection are later work. An interactive local sparse-reconstruction demo is available below.
 
 ## Reconstruct two photographs
 
@@ -170,16 +170,18 @@ For the presentation, select **Load Castle Demo → Start Reconstruction → Ope
 
 After the 3D window opens, use **Show Cameras (C)** beside **Open Output Folder** in the desktop application to show or hide estimated camera positions and viewing directions as frustums. Pressing **C** in the Open3D window controls the same overlay and synchronizes the checkbox. Toggle freely without rerunning reconstruction or reopening the PLY. Camera visibility is independent of the A-key coordinate-axis overlay. The checkbox is disabled until the viewer has loaded usable pose and intrinsic metadata; standalone PLY files without that metadata remain viewable.
 
-For custom input, **Browse** to an ordered folder containing 2–30 JPEG/PNG images, then select a **Camera JSON**. Use the existing shared-camera format or an `images` mapping keyed by exact filenames. Calibration must describe original EXIF-oriented dimensions; the engine handles resize scaling. This deliberately small demo requires calibrated intrinsics. Approximate calibration remains an explicit CLI-only option. Unreadable files are reported and skipped; fewer than two readable images is an error. Geometric success is never guaranteed for an arbitrary folder.
+For custom input, choose **Folder…** or **Files…** and select 2–30 JPEG/PNG photographs. Two readable photos use pair reconstruction, while three or more use incremental SfM. Filenames determine order. **Camera JSON** is optional. Use a shared camera, an `images` mapping keyed by exact filenames, or a `camera1`/`camera2` file for pair mode in sorted filename order. Calibration must describe original EXIF-oriented dimensions. If no file is selected, each image gets an independent focal estimate from EXIF or a fallback. Unreadable files are reported and skipped. Small baselines, scene changes, weak overlap and inaccurate focal estimates can still cause rejection or biased geometry.
+
+Choose **Output location…** to set the parent folder for new runs. **Longest side** bounds processed resolution. **Cancel** stops the active worker and retains any incomplete diagnostics. **Save PLY As…** copies the current point cloud. The original run also keeps camera poses and intrinsics in JSON.
 
 Each run gets a new `outputs/demo/run_<UTC timestamp>_<id>/` directory. `reconstruction.log` and `demo_request.json` sit beside the engine's `reconstruction/` folder, which contains `metrics.json`, `sparse.ply`, poses, tracks and intrinsics. Existing results are not overwritten. Stage messages come from completed engine artifacts; camera and landmark counts appear only after final metrics exist. A partial result is clearly labeled and does not mean all input images registered. Sparse PLY is not a mesh or a textured asset.
 
-**Open Output Folder** opens the actual run/result folder. **Open Previous Result** loads an existing reconstruction folder containing `metrics.json` and `sparse.ply`; it is explicitly labeled as previously computed, making it a presentation backup rather than a claimed live run. **Open 3D View** launches a separate Open3D process using the actual PLY. No unstable rendering widget is embedded in Tkinter. Duplicate jobs and duplicate viewers are prevented; closing the app asks before stopping an active reconstruction and reaps its child process. There is no advertised cancellation feature.
+**Open Output Folder** opens the actual run/result folder. **Open Previous Result** loads an existing reconstruction folder containing `metrics.json` and `sparse.ply`; it is explicitly labeled as previously computed, making it a presentation backup rather than a claimed live run. **Open 3D View** launches a separate Open3D process using the actual PLY. No unstable rendering widget is embedded in Tkinter. Duplicate jobs and duplicate viewers are prevented; closing the app asks before stopping an active reconstruction and reaps its child process. Cancellation also leaves any completed prior run files available through **Open Previous Result**.
 
 Troubleshooting:
 
 - Missing Castle data: select existing local photographs manually; the app does not download replacements.
-- Missing/wrong calibration: select a valid JSON with matching EXIF-oriented image dimensions; see `configs/sceaux.json` for the shared-camera format.
+- Unexpected geometry with automatic intrinsics: inspect `intrinsics.json`. If available, supply calibration with matching EXIF-oriented image dimensions. See `configs/sceaux.json` for the shared-camera format.
 - Reconstruction rejected/failed: read the visible error and the run's `reconstruction.log` / `metrics.json`; select a connected, translated, nonplanar sequence. Quality thresholds are unchanged.
 - Missing/corrupt PLY: select an intact result or rerun reconstruction. The viewer validates nonempty finite points and colors.
 - Open3D window failure: use a local graphical desktop with a working OpenGL driver. Reconstruction is CPU-based; visualization still needs graphics support. Remote/headless rendering and the target laptop are not validated.
@@ -200,3 +202,22 @@ The desktop now adds a bounded final **fixed-camera multi-view point refinement*
 Recorded Castle results retain 6/6 cameras and 3,915 landmarks: RMS reprojection error decreases from 0.587 to 0.477 px, while median error increases from 0.285 to 0.306 px. Temple retains 18/30 cameras, 2,664 landmarks and exactly the same reference camera errors, with lower RMS but slightly higher median reprojection error. These results improve aggregate point fit conditional on fixed cameras; they do not establish absolute surface accuracy or recover missing architectural detail. Larger feature targets, stricter matching, higher resolution and expanded BA were not adopted. Quality subsets are labeled diagnostic plots only and are not automatically pruned from PLY outputs.
 
 See [the sparse-quality report](docs/TASK07_REPORT.md) for all ablations, genuine before/after figures, independent validation, runtime costs and remaining limitations. The original demonstration measurements and historical benchmark/presentation artifacts remain unchanged.
+
+
+## Automatic intrinsics and calibrated stereo
+
+Without Camera JSON the desktop uses the same opt-in mode as CLI `--auto-intrinsics`. EXIF 35 mm equivalent focal length scales by the oriented image diagonal relative to the 36 × 24 mm reference frame. Physical focal length and focal-plane resolution are used when the recorded pixel grid and units are usable. Suspect or conflicting metadata can fall back to focal length equal to image diagonal (about 53° diagonal FOV). The inferred model assumes a centered principal point and zero distortion. Source, confidence and assumptions are recorded per image, before and after resize. Explicit JSON takes precedence in the desktop. Automatic initialization estimates focal length only. It does not calibrate a lens or optimize intrinsics.
+
+```powershell
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-pair --image1 datasets/sceaux/images/100_7101.JPG --image2 datasets/sceaux/images/100_7103.JPG --auto-intrinsics --output outputs/my-auto-pair
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence --input datasets/sceaux/images --auto-intrinsics --local-ba --refine-points --output outputs/my-auto-sequence
+```
+
+The experimental CPU stereo stage takes a successful **explicitly calibrated** pair result and its unchanged original photos. It requires equal processed sizes (64–1600 px per side), horizontal rectification and a bounded disparity search. It exports `dense.ply` and optionally `mesh.ply` to a separate directory. The mesh connects neighboring accepted disparity samples, rejects depth jumps, and uses image-derived vertex colors. It is an open visible surface with holes at occlusions or unmatched regions. Open a completed output through **Open Previous Result**, then **Open 3D View** or **Open Mesh**.
+
+```powershell
+.venv\Scripts\python.exe scripts/motorcycle_experiment.py --output outputs/motorcycle-sparse
+.venv\Scripts\python.exe -m vision3d.cli dense-pair --pair-dir outputs/motorcycle-sparse --output outputs/motorcycle-dense --mesh
+```
+
+PLY exports retain the sparse world frame and arbitrary baseline scale. Camera poses and intrinsics are available as JSON. See the [completion report](docs/COMPLETION_REPORT.md) for validation and limitations.
