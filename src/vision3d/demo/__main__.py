@@ -8,7 +8,7 @@ import sys
 import threading
 from time import perf_counter
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .support import (allocate_run, child_options, open_directory, read_result,
                       repository_root, resolve_castle, run_job, supported_images, write_camera_visibility)
@@ -31,13 +31,15 @@ class DemoApp:
         self.folder = tk.StringVar()
         self.camera = tk.StringVar()
         self.selected_files = ()
+        self.video_path = None
+        self.video_options = {}
         self.quality = tk.StringVar(value="1600")
         self.enhanced_matching = tk.BooleanVar(value=False)
         self.dense_profile = tk.StringVar(value="Sparse only")
         self.mesh_requested = tk.BooleanVar(value=True)
         self.glb_requested = tk.BooleanVar(value=False)
         self.job_results = {}
-        self.count = tk.StringVar(value="No image folder selected")
+        self.count = tk.StringVar(value="No input selected")
         self.stage = tk.StringVar(value="Ready")
         self.elapsed = tk.StringVar(value="Elapsed: —")
         self.statistics = tk.StringVar(value="Registered cameras: —    Landmarks: —")
@@ -61,13 +63,14 @@ class DemoApp:
         panel = ttk.Frame(root, padding=16)
         panel.pack(fill="both", expand=True)
         panel.columnconfigure(1, weight=1)
-        ttk.Label(panel, text="Images").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(panel, text="Input").grid(row=0, column=0, sticky="w", pady=4)
         self.folder_entry = ttk.Entry(panel, textvariable=self.folder, state="readonly")
         self.folder_entry.grid(row=0, column=1, sticky="ew", padx=8)
         image_buttons = ttk.Frame(panel)
         image_buttons.grid(row=0, column=2)
         self.button(image_buttons, "Folder…", self.browse_folder).pack(side="left")
         self.button(image_buttons, "Files…", self.browse_files).pack(side="left")
+        self.button(image_buttons, "Video…", self.browse_video).pack(side="left")
         ttk.Label(panel, textvariable=self.count).grid(row=1, column=1, sticky="w", padx=8, pady=(0, 8))
         ttk.Label(panel, text="Camera JSON (optional)").grid(row=2, column=0, sticky="w")
         ttk.Entry(panel, textvariable=self.camera, state="readonly").grid(row=2, column=1, sticky="ew", padx=8)
@@ -93,6 +96,8 @@ class DemoApp:
         self.enhanced_check = ttk.Checkbutton(options, text="Enhanced matching (experimental)",
                                              variable=self.enhanced_matching)
         self.enhanced_check.pack(side="left", padx=8)
+        self.video_settings_button = ttk.Button(options, text="Video settings…", command=self.video_settings, state="disabled")
+        self.video_settings_button.pack(side="left")
         dense_options = ttk.Frame(panel)
         dense_options.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(dense_options, text="Multi-view").pack(side="left", padx=(0, 6))
@@ -159,6 +164,8 @@ class DemoApp:
         value = filedialog.askdirectory(title="Select ordered JPEG/PNG image folder", parent=self.root)
         if value:
             self.selected_files = ()
+            self.video_path = None
+            self.video_settings_button.configure(state="disabled")
             self.folder.set(value)
             self.camera.set("")
             try:
@@ -171,9 +178,42 @@ class DemoApp:
                                             filetypes=[("Photographs", "*.jpg *.jpeg *.png")], parent=self.root)
         if files:
             self.selected_files = files
+            self.video_path = None
+            self.video_settings_button.configure(state="disabled")
             self.folder.set(f"{len(files)} selected files")
             self.camera.set("")
             self.count.set(f"{len(files)} selected; filenames determine processing order")
+
+    def browse_video(self):
+        from vision3d.io.video import inspect_video
+
+        path = filedialog.askopenfilename(title="Select MP4 video", filetypes=[("MP4 video", "*.mp4")], parent=self.root)
+        if not path:
+            return
+        try:
+            info = inspect_video(path)
+        except (ValueError, OSError) as exc:
+            self.error(str(exc))
+            return
+        self.video_path = path
+        self.selected_files = ()
+        self.camera.set("")
+        self.folder.set(path)
+        self.count.set(f"MP4: {info.width}×{info.height} · {info.fps:.2f} fps · {info.seconds:.1f} s")
+        self.video_settings_button.configure(state="normal")
+
+    def video_settings(self):
+        sample = simpledialog.askfloat("Video settings", "Candidate frames per second (0.5–12)",
+                                       initialvalue=self.video_options.get("sample_hz", 4),
+                                       minvalue=.5, maxvalue=12, parent=self.root)
+        if sample is None:
+            return
+        count = simpledialog.askinteger("Video settings", "Maximum retained keyframes (2–50)",
+                                        initialvalue=self.video_options.get("max_keyframes", 40),
+                                        minvalue=2, maxvalue=50, parent=self.root)
+        if count is not None:
+            self.video_options = {"sample_hz": sample, "max_keyframes": count}
+            self.note(f"Video settings: {sample:g} candidates/s, at most {count} keyframes.")
 
     def choose_output(self):
         path = filedialog.askdirectory(title="Select parent folder for new reconstruction runs", parent=self.root)
@@ -211,6 +251,8 @@ class DemoApp:
         try:
             folder, camera = resolve_castle(self.root_dir)
             self.selected_files = ()
+            self.video_path = None
+            self.video_settings_button.configure(state="disabled")
             self.folder.set(str(folder))
             self.camera.set(str(camera))
             self.show_count()
@@ -224,6 +266,7 @@ class DemoApp:
         self.view_button.configure(state="normal" if not active and self.result and self.viewer is None else "disabled")
         self.quality_box.configure(state="disabled" if active else "readonly")
         self.enhanced_check.configure(state="disabled" if active else "normal")
+        self.video_settings_button.configure(state="normal" if self.video_path and not active else "disabled")
         self.profile_box.configure(state="disabled" if active else "readonly")
         dense = not active and self.dense_profile.get() != "Sparse only"
         self.mesh_check.configure(state="normal" if dense else "disabled")
@@ -239,7 +282,7 @@ class DemoApp:
         if self.worker is not None or self.closing:
             return
         if not self.folder.get():
-            self.error("Select an image folder or at least two photographs first.")
+            self.error("Select a video, an image folder or at least two photographs first.")
             return
         self.result = None
         self.run_folder = None
@@ -253,7 +296,8 @@ class DemoApp:
         mesh = profile != "Sparse only" and self.mesh_requested.get()
         self.worker = threading.Thread(target=run_job, args=(self.selected_files or self.folder.get(), self.camera.get(), self.output_base,
             lambda kind, value: self.events.put((kind, value)), self.stop, int(self.quality.get()),
-            None if profile == "Sparse only" else profile, mesh, mesh and self.glb_requested.get(), self.enhanced_matching.get()), name="reconstruction-worker", daemon=False)
+            None if profile == "Sparse only" else profile, mesh, mesh and self.glb_requested.get(), self.enhanced_matching.get(),
+            self.video_options.copy() if self.video_path else None), name="reconstruction-worker", daemon=False)
         self.worker.start()
 
     def show_result(self, result, previous=False, elapsed=None):
@@ -334,7 +378,8 @@ class DemoApp:
             elif kind == "validated":
                 self.count.set(f"{value['usable']} readable images / {value['supported']} supported files")
                 if value["automatic_intrinsics"]:
-                    self.note("Using per-image EXIF or fallback estimates. Geometry may be biased; see intrinsics.json for provenance.")
+                    source = "a video focal-length prior" if value.get("video") else "per-image EXIF or fallback estimates"
+                    self.note(f"Using {source}. Geometry may be biased; see intrinsics.json for provenance.")
                 for skipped in value["skipped"]:
                     self.note("Skipped unreadable input: " + skipped)
             elif kind == "run":
