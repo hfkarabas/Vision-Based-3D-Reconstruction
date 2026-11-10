@@ -200,8 +200,24 @@ def main(argv=None):
     asset.add_argument("--output", required=True)
     asset.add_argument("--target-faces", type=int, default=450000)
     asset.add_argument("--max-error", type=float, help="Maximum sampled P99 surface deviation in SfM units")
+    texture = sub.add_parser("texture-asset", help="Project source photographs onto a validated surface and export GLB")
+    texture.add_argument("--surface-dir", required=True)
+    texture.add_argument("--output", required=True)
+    texture.add_argument("--atlas-size", type=int, default=4096)
+    texture.add_argument("--holdout-stride", type=int, default=0, help="Reserve every Nth photo for appearance validation")
+    texture.add_argument("--units-per-world", type=float, default=1., help="Output units per SfM unit, supplied by the user")
+    texture.add_argument("--front-faces-only", action="store_true", help="Exclude visible backfaces from the photographic material")
+    texture.add_argument("--obj", action="store_true", help="Also export OBJ and its photographic MTL")
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
+    if selected == "texture-asset":
+        from vision3d.reconstruction.texture_asset import build_texture_asset
+        try:
+            result = build_texture_asset(**args, stage=lambda name: print("Stage: " + name, flush=True))
+        except (ValueError, OSError, KeyError, TypeError, RuntimeError, cv2.error) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps(result))
+        return
     if selected == "surface-asset":
         from vision3d.reconstruction.surface_asset import build_surface_asset
         try:
