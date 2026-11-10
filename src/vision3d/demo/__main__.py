@@ -32,6 +32,7 @@ class DemoApp:
         self.camera = tk.StringVar()
         self.selected_files = ()
         self.quality = tk.StringVar(value="1600")
+        self.enhanced_matching = tk.BooleanVar(value=False)
         self.dense_profile = tk.StringVar(value="Sparse only")
         self.mesh_requested = tk.BooleanVar(value=True)
         self.glb_requested = tk.BooleanVar(value=False)
@@ -89,6 +90,9 @@ class DemoApp:
         self.quality_box = ttk.Combobox(options, textvariable=self.quality, values=("1000", "1600", "2400"),
                                         width=6, state="readonly")
         self.quality_box.pack(side="left")
+        self.enhanced_check = ttk.Checkbutton(options, text="Enhanced matching (experimental)",
+                                             variable=self.enhanced_matching)
+        self.enhanced_check.pack(side="left", padx=8)
         dense_options = ttk.Frame(panel)
         dense_options.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(dense_options, text="Multi-view").pack(side="left", padx=(0, 6))
@@ -219,6 +223,7 @@ class DemoApp:
             button.configure(state="disabled" if active else "normal")
         self.view_button.configure(state="normal" if not active and self.result and self.viewer is None else "disabled")
         self.quality_box.configure(state="disabled" if active else "readonly")
+        self.enhanced_check.configure(state="disabled" if active else "normal")
         self.profile_box.configure(state="disabled" if active else "readonly")
         dense = not active and self.dense_profile.get() != "Sparse only"
         self.mesh_check.configure(state="normal" if dense else "disabled")
@@ -248,7 +253,7 @@ class DemoApp:
         mesh = profile != "Sparse only" and self.mesh_requested.get()
         self.worker = threading.Thread(target=run_job, args=(self.selected_files or self.folder.get(), self.camera.get(), self.output_base,
             lambda kind, value: self.events.put((kind, value)), self.stop, int(self.quality.get()),
-            None if profile == "Sparse only" else profile, mesh, mesh and self.glb_requested.get()), name="reconstruction-worker", daemon=False)
+            None if profile == "Sparse only" else profile, mesh, mesh and self.glb_requested.get(), self.enhanced_matching.get()), name="reconstruction-worker", daemon=False)
         self.worker.start()
 
     def show_result(self, result, previous=False, elapsed=None):

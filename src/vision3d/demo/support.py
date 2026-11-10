@@ -82,7 +82,7 @@ def allocate_run(base):
     return run
 
 
-def reconstruction_command(selection, camera, output, *, max_dimension=1600):
+def reconstruction_command(selection, camera, output, *, max_dimension=1600, enhanced=False, cache=None):
     folder = isinstance(selection, (str, Path))
     files = supported_images(selection) if folder else image_paths(selection)
     if len(files) == 2:
@@ -91,6 +91,10 @@ def reconstruction_command(selection, camera, output, *, max_dimension=1600):
         args = ["reconstruct-sequence"]
         args += ["--input", str(Path(selection).resolve())] if folder else ["--images", *map(str, files)]
         args += ["--local-ba", "--refine-points", "--min-registered", str(min(5, len(files)))]
+        if enhanced:
+            args += ["--exhaustive", "--verifier", "magsac", "--probe-seeds", "--ratio", "0.80"]
+            if cache is not None:
+                args += ["--pair-cache", str(Path(cache).resolve())]
     calibration = ["--camera", str(Path(camera).resolve())] if camera else ["--auto-intrinsics"]
     return [sys.executable, "-u", "-m", "vision3d.cli", *args, *calibration,
             "--output", str(Path(output).resolve()), "--max-dimension", str(max_dimension)]
@@ -183,7 +187,7 @@ def run_child(command, log_path, stage, emit, stop):
         return process.returncode
 
 
-def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, mesh=False, glb=False):
+def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, mesh=False, glb=False, enhanced=False):
     """Blocking worker function; only messages cross into the Tk main thread."""
     run = None
     try:
@@ -195,7 +199,8 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, 
         run = allocate_run(base)
         output = run / "reconstruction"
         emit("run", str(run))
-        command = reconstruction_command(validation["files"], camera, output, max_dimension=max_dimension)
+        command = reconstruction_command(validation["files"], camera, output, max_dimension=max_dimension,
+                                         enhanced=enhanced, cache=Path(base) / "pair-cache")
         (run / "demo_request.json").write_text(json.dumps({"command": command, "validation": validation}, indent=2), encoding="utf-8")
         started = perf_counter()
         def sparse_stage():
@@ -215,6 +220,11 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, 
         if (code == 0) != (result.status == "success"):
             raise ValueError("Engine exit code and saved result status disagree; inspect reconstruction.log.")
         emit("result", (result, elapsed))
+        data = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+        graph = data.get("tracks", {}).get("graph")
+        if graph:
+            emit("notice", f"Matching graph: {graph['verified_edges']} verified pairs, "
+                           f"{len(graph['components_after'])} components. See pairs.json and poses.json for details.")
         if profile is not None:
             if result.registered < 3:
                 emit("error", "Dense sequence needs at least three registered views. The sparse result is available.")
