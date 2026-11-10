@@ -30,12 +30,12 @@ def supported_images(folder):
     return image_paths(folder)
 
 
-def validate_inputs(selection, camera):
+def validate_inputs(selection, camera, max_images=30):
     """Check readable files and the explicit model, if supplied, before starting a child."""
     from vision3d.geometry.camera import load_calibration, named_camera
     files = supported_images(selection) if isinstance(selection, (str, Path)) else image_paths(selection)
-    if not 2 <= len(files) <= 30:
-        raise ValueError("The demo accepts 2–30 JPEG/PNG files. Select a smaller subset if necessary.")
+    if not 2 <= len(files) <= max_images:
+        raise ValueError(f"The demo accepts 2–{max_images} JPEG/PNG files. Select a smaller subset if necessary.")
     valid, skipped, sizes = [], [], []
     for path in files:
         try:
@@ -82,7 +82,7 @@ def allocate_run(base):
     return run
 
 
-def reconstruction_command(selection, camera, output, *, max_dimension=1600, enhanced=False, cache=None):
+def reconstruction_command(selection, camera, output, *, max_dimension=1600, enhanced=False, cache=None, video=False):
     folder = isinstance(selection, (str, Path))
     files = supported_images(selection) if folder else image_paths(selection)
     if len(files) == 2:
@@ -91,8 +91,13 @@ def reconstruction_command(selection, camera, output, *, max_dimension=1600, enh
         args = ["reconstruct-sequence"]
         args += ["--input", str(Path(selection).resolve())] if folder else ["--images", *map(str, files)]
         args += ["--local-ba", "--refine-points", "--min-registered", str(min(5, len(files)))]
+        if video:
+            args += ["--window", "4", "--long-gap", "8", "--max-images", "50"]
+            if not enhanced:
+                args += ["--recovery-pairs", "12"]
         if enhanced:
-            args += ["--exhaustive", "--verifier", "magsac", "--probe-seeds", "--ratio", "0.80"]
+            args += ["--exhaustive"] if len(files) <= 30 else ["--recovery-pairs", "30"]
+            args += ["--verifier", "magsac", "--probe-seeds", "--ratio", "0.80"]
             if cache is not None:
                 args += ["--pair-cache", str(Path(cache).resolve())]
     calibration = ["--camera", str(Path(camera).resolve())] if camera else ["--auto-intrinsics"]
@@ -187,21 +192,59 @@ def run_child(command, log_path, stage, emit, stop):
         return process.returncode
 
 
-def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, mesh=False, glb=False, enhanced=False):
+def reported_stage(log, fallback):
+    try:
+        with log.open("rb") as stream:
+            stream.seek(max(0, log.stat().st_size - 4096))
+            lines = stream.read().decode("utf-8", errors="replace").splitlines()
+        return next((line[7:] for line in reversed(lines) if line.startswith("Stage: ")), fallback)
+    except OSError:
+        return fallback
+
+
+def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, mesh=False, glb=False,
+            enhanced=False, video_options=None):
     """Blocking worker function; only messages cross into the Tk main thread."""
     run = None
     try:
+        video = video_options is not None
+        automatic = not bool(camera)
+        if video:
+            run = allocate_run(base)
+            emit("run", str(run))
+            keyframes = run / "keyframes"
+            log = run / "keyframes.log"
+            extraction = [sys.executable, "-u", "-m", "vision3d.cli", "keyframes",
+                          "--video", str(Path(folder).resolve()), "--output", str(keyframes)]
+            if camera:
+                extraction += ["--camera", str(Path(camera).resolve())]
+            for name, value in video_options.items():
+                extraction += ["--" + name.replace("_", "-"), str(value)]
+            code = run_child(extraction, log, lambda: reported_stage(log, "Starting MP4 extraction"), emit, stop)
+            if stop.is_set():
+                return
+            if code != 0:
+                raise ValueError("Video extraction failed. " + log.read_text(encoding="utf-8", errors="replace")[-1600:])
+            report = json.loads((keyframes / "keyframes.json").read_text(encoding="utf-8"))
+            decisions = report.get("decision_counts", {})
+            emit("notice", f"Selected {len(report['selected'])} keyframes from {report['decoded_frames']} decoded frames. "
+                           f"Rejected {decisions.get('near_duplicate', 0)} near duplicates and "
+                           f"{decisions.get('blur', 0)} blurred samples. Details: {keyframes / 'keyframes.json'}")
+            folder = keyframes / "frames"
+            camera = keyframes / "camera.json"
         emit("stage", "Validating readable images and calibration")
-        validation = validate_inputs(folder, camera)
-        emit("validated", {**validation, "automatic_intrinsics": not bool(camera)})
+        validation = validate_inputs(folder, camera, max_images=50 if video else 30)
+        emit("validated", {**validation, "automatic_intrinsics": automatic, "video": video})
         if stop.is_set():
             return
-        run = allocate_run(base)
+        if run is None:
+            run = allocate_run(base)
+            emit("run", str(run))
         output = run / "reconstruction"
-        emit("run", str(run))
         command = reconstruction_command(validation["files"], camera, output, max_dimension=max_dimension,
-                                         enhanced=enhanced, cache=Path(base) / "pair-cache")
-        (run / "demo_request.json").write_text(json.dumps({"command": command, "validation": validation}, indent=2), encoding="utf-8")
+                                         enhanced=enhanced, cache=Path(base) / "pair-cache", video=video)
+        (run / "demo_request.json").write_text(json.dumps({"command": command, "validation": validation,
+                                                              "keyframe_manifest": str(keyframes / "keyframes.json") if video else None}, indent=2), encoding="utf-8")
         started = perf_counter()
         def sparse_stage():
             stage = artifact_stage(output)
@@ -221,6 +264,12 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, 
             raise ValueError("Engine exit code and saved result status disagree; inspect reconstruction.log.")
         emit("result", (result, elapsed))
         data = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+        if video:
+            quality = data.get("after_final_ba", {})
+            median = quality.get("median_error_px", data.get("median_reprojection_error_px"))
+            if isinstance(median, (float, int)):
+                emit("notice", f"Registered {result.registered}/{validation['usable']} keyframes. "
+                               f"Median reprojection error: {median:.3f} px (image fit, not absolute accuracy).")
         graph = data.get("tracks", {}).get("graph")
         if graph:
             emit("notice", f"Matching graph: {graph['verified_edges']} verified pairs, "
@@ -238,16 +287,7 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, 
             if glb:
                 command.append("--glb")
 
-            def dense_stage():
-                try:
-                    with log.open("rb") as stream:
-                        stream.seek(max(0, log.stat().st_size - 4096))
-                        lines = stream.read().decode("utf-8", errors="replace").splitlines()
-                    return next((line[7:] for line in reversed(lines) if line.startswith("Stage: ")), "Starting dense reconstruction")
-                except OSError:
-                    return "Starting dense reconstruction"
-
-            code = run_child(command, log, dense_stage, emit, stop)
+            code = run_child(command, log, lambda: reported_stage(log, "Starting dense reconstruction"), emit, stop)
             if stop.is_set():
                 emit("stage", "Dense stage cancelled. Sparse result remains available.")
             elif code != 0:

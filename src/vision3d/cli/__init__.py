@@ -156,6 +156,16 @@ def main(argv=None):
     sequence.add_argument('--recovery-pairs', type=int, default=0, help='Additional verified appearance-ranked pairs, budget 0..30')
     sequence.add_argument('--joint-ba', action='store_true', help='Final bounded joint map refinement')
     sequence.add_argument('--refine-points', action='store_true', help='Fixed-camera refinement of verified multiview landmarks')
+    keyframes = sub.add_parser("keyframes", help="Extract motion- and quality-selected MP4 frames")
+    keyframes.add_argument("--video", required=True)
+    keyframes.add_argument("--output", required=True)
+    keyframes.add_argument("--sample-hz", type=float, default=4)
+    keyframes.add_argument("--max-keyframes", type=int, default=40)
+    keyframes.add_argument("--min-sharpness", type=float, default=18)
+    keyframes.add_argument("--min-features", type=int, default=45)
+    keyframe_calibration = keyframes.add_mutually_exclusive_group()
+    keyframe_calibration.add_argument("--fov-degrees", type=float)
+    keyframe_calibration.add_argument("--camera", help="Shared calibration at decoded video resolution")
     dense = sub.add_parser("dense-pair", help="Experimental CPU dense stereo from a calibrated pair result")
     dense.add_argument("--pair-dir", required=True)
     dense.add_argument("--output", required=True)
@@ -170,6 +180,18 @@ def main(argv=None):
     multiview.add_argument("--target-faces", type=int)
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
+    if selected == "keyframes":
+        from vision3d.io.video import KeyframeOptions, extract_keyframes
+        try:
+            options = KeyframeOptions(**{name: args.pop(name) for name in
+                                        ("sample_hz", "max_keyframes", "min_sharpness", "min_features")})
+            result = extract_keyframes(**args, options=options,
+                                       stage=lambda message: print("Stage: " + message, flush=True))
+        except (ValueError, OSError, cv2.error) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps({"output": args["output"], "selected": len(result["selected"]),
+                          "decoded": result["decoded_frames"]}))
+        return
     if selected == "dense-sequence":
         from vision3d.reconstruction.multiview import reconstruct_multiview
         try:
