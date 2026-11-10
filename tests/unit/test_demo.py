@@ -263,3 +263,25 @@ def test_open_output_folder_validation(tmp_path, monkeypatch):
         monkeypatch.setattr(support.os, "startfile", calls.append)
         support.open_directory(tmp_path)
         assert calls == [str(tmp_path.resolve())]
+
+
+
+def test_dense_failure_leaves_sparse_result_available(tmp_path, monkeypatch):
+    folder = images(tmp_path / "images", 3)
+    events = []
+
+    def child(command, log, stage, emit, stop):
+        output = Path(command[command.index("--output") + 1])
+        if "dense-sequence" in command:
+            log.write_text("error: no third-view agreement")
+            return 2
+        metrics(output, registered_images=3)
+        return 0
+
+    monkeypatch.setattr(support, "run_child", child)
+    support.run_job(folder, "", tmp_path / "output", lambda *event: events.append(event),
+                    threading.Event(), profile="fast", mesh=True)
+    result = next(value[0] for kind, value in events if kind == "result")
+    assert result.ply.exists() and not result.is_dense
+    assert any(kind == "error" and "Sparse result remains available" in value for kind, value in events)
+    assert events[-1] == ("done", None)

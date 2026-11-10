@@ -106,8 +106,12 @@ class Result:
     representation: str = "sparse"
 
     @property
+    def is_dense(self):
+        return self.representation in {"dense_two_view_stereo", "dense_multiview"}
+
+    @property
     def ply(self):
-        return self.directory / ("dense.ply" if self.representation == "dense_two_view_stereo" else "sparse.ply")
+        return self.directory / ("dense.ply" if self.is_dense else "sparse.ply")
 
 
 def read_result(directory):
@@ -117,7 +121,7 @@ def read_result(directory):
         if data.get("status") not in {"success", "partial"}:
             raise ValueError(data.get("reason", "Reconstruction was rejected."))
         representation = data.get("representation", "sparse")
-        dense = representation == "dense_two_view_stereo"
+        dense = representation in {"dense_two_view_stereo", "dense_multiview"}
         counts = [data["registered_images"], data["dense_points" if dense else "valid_landmarks"]]
         if any(isinstance(x, bool) or not isinstance(x, int) or x < 1 for x in counts):
             raise ValueError("Invalid camera or landmark counts in metrics.")
@@ -154,7 +158,32 @@ def child_options():
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
 
-def run_job(folder, camera, base, emit, stop, max_dimension=1600):
+def run_child(command, log_path, stage, emit, stop):
+    if stop.is_set():
+        return None
+    with log_path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, **child_options())
+        try:
+            previous = None
+            while process.poll() is None:
+                current = stage()
+                if current != previous:
+                    emit("stage", current)
+                    previous = current
+                if stop.wait(0.2):
+                    break
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+        return process.returncode
+
+
+def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, mesh=False, glb=False):
     """Blocking worker function; only messages cross into the Tk main thread."""
     run = None
     try:
@@ -169,43 +198,59 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600):
         command = reconstruction_command(validation["files"], camera, output, max_dimension=max_dimension)
         (run / "demo_request.json").write_text(json.dumps({"command": command, "validation": validation}, indent=2), encoding="utf-8")
         started = perf_counter()
-        with (run / "reconstruction.log").open("w", encoding="utf-8") as log:
-            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, **child_options())
-            try:
-                previous = None
-                while process.poll() is None:
-                    stage = artifact_stage(output)
-                    if validation["usable"] == 2 and stage.startswith("Features prepared"):
-                        stage = "Pair features matched; estimating relative pose and triangulating"
-                    if stage != previous:
-                        emit("stage", stage)
-                        previous = stage
-                    if stop.wait(0.2):
-                        process.terminate()
-                        try:
-                            process.wait(timeout=5)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                            process.wait()
-                        return
-            finally:
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+        def sparse_stage():
+            stage = artifact_stage(output)
+            if validation["usable"] == 2 and stage.startswith("Features prepared"):
+                return "Pair features matched; estimating relative pose and triangulating"
+            return stage
+
+        code = run_child(command, run / "reconstruction.log", sparse_stage, emit, stop)
         if stop.is_set():
             return
         elapsed = perf_counter() - started
-        if process.returncode not in (0, 3):
+        if code not in (0, 3):
             tail = (run / "reconstruction.log").read_text(encoding="utf-8", errors="replace")[-2400:]
-            raise ValueError(f"Engine exited with code {process.returncode}.\n{tail}\nLog: {run / 'reconstruction.log'}")
+            raise ValueError(f"Engine exited with code {code}.\n{tail}\nLog: {run / 'reconstruction.log'}")
         result = read_result(output)
-        if (process.returncode == 0) != (result.status == "success"):
+        if (code == 0) != (result.status == "success"):
             raise ValueError("Engine exit code and saved result status disagree; inspect reconstruction.log.")
         emit("result", (result, elapsed))
+        if profile is not None:
+            if result.registered < 3:
+                emit("error", "Dense sequence needs at least three registered views. The sparse result is available.")
+                return
+            dense = run / "dense"
+            log = run / "dense.log"
+            command = [sys.executable, "-u", "-m", "vision3d.cli", "dense-sequence",
+                       "--sparse-dir", str(output), "--output", str(dense), "--profile", profile]
+            if mesh:
+                command.append("--mesh")
+            if glb:
+                command.append("--glb")
+
+            def dense_stage():
+                try:
+                    with log.open("rb") as stream:
+                        stream.seek(max(0, log.stat().st_size - 4096))
+                        lines = stream.read().decode("utf-8", errors="replace").splitlines()
+                    return next((line[7:] for line in reversed(lines) if line.startswith("Stage: ")), "Starting dense reconstruction")
+                except OSError:
+                    return "Starting dense reconstruction"
+
+            code = run_child(command, log, dense_stage, emit, stop)
+            if stop.is_set():
+                emit("stage", "Dense stage cancelled. Sparse result remains available.")
+            elif code != 0:
+                tail = log.read_text(encoding="utf-8", errors="replace")[-1600:]
+                emit("error", f"Dense stage failed. Sparse result remains available.\n{tail}")
+            else:
+                dense_result = read_result(dense)
+                emit("result", (dense_result, None))
+                data = json.loads((dense / "metrics.json").read_text(encoding="utf-8"))
+                surface = data.get("mesh") or {}
+                for item in (surface, surface.get("glb", {})):
+                    if "reason" in item:
+                        emit("notice", item["reason"])
     except Exception as exc:
         emit("error", f"{type(exc).__name__}: {exc}" + (f"\nRun folder: {run}" if run else ""))
     finally:

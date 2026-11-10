@@ -32,6 +32,10 @@ class DemoApp:
         self.camera = tk.StringVar()
         self.selected_files = ()
         self.quality = tk.StringVar(value="1600")
+        self.dense_profile = tk.StringVar(value="Sparse only")
+        self.mesh_requested = tk.BooleanVar(value=True)
+        self.glb_requested = tk.BooleanVar(value=False)
+        self.job_results = {}
         self.count = tk.StringVar(value="No image folder selected")
         self.stage = tk.StringVar(value="Ready")
         self.elapsed = tk.StringVar(value="Elapsed: —")
@@ -85,13 +89,28 @@ class DemoApp:
         self.quality_box = ttk.Combobox(options, textvariable=self.quality, values=("1000", "1600", "2400"),
                                         width=6, state="readonly")
         self.quality_box.pack(side="left")
-        ttk.Separator(panel).grid(row=5, column=0, columnspan=3, sticky="ew", pady=12)
-        ttk.Label(panel, textvariable=self.stage, wraplength=700).grid(row=6, column=0, columnspan=3, sticky="w")
-        ttk.Label(panel, textvariable=self.elapsed).grid(row=7, column=0, columnspan=3, sticky="w", pady=5)
-        ttk.Label(panel, textvariable=self.statistics).grid(row=8, column=0, columnspan=3, sticky="w")
-        ttk.Label(panel, textvariable=self.result_path, wraplength=700).grid(row=9, column=0, columnspan=3, sticky="w", pady=8)
+        dense_options = ttk.Frame(panel)
+        dense_options.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Label(dense_options, text="Multi-view").pack(side="left", padx=(0, 6))
+        self.profile_box = ttk.Combobox(dense_options, textvariable=self.dense_profile,
+                                        values=("Sparse only", "fast", "balanced", "high"), state="readonly", width=12)
+        self.profile_box.pack(side="left")
+        self.profile_box.bind("<<ComboboxSelected>>", lambda event: self.busy(False))
+        self.mesh_check = ttk.Checkbutton(dense_options, text="Colored mesh", variable=self.mesh_requested,
+                                          command=lambda: self.busy(False), state="disabled")
+        self.mesh_check.pack(side="left", padx=8)
+        self.glb_check = ttk.Checkbutton(dense_options, text="GLB export", variable=self.glb_requested, state="disabled")
+        self.glb_check.pack(side="left")
+        self.switch_button = ttk.Button(dense_options, text="Switch Sparse / Dense",
+                                        command=self.switch_result, state="disabled")
+        self.switch_button.pack(side="left", padx=8)
+        ttk.Separator(panel).grid(row=6, column=0, columnspan=3, sticky="ew", pady=12)
+        ttk.Label(panel, textvariable=self.stage, wraplength=700).grid(row=7, column=0, columnspan=3, sticky="w")
+        ttk.Label(panel, textvariable=self.elapsed).grid(row=8, column=0, columnspan=3, sticky="w", pady=5)
+        ttk.Label(panel, textvariable=self.statistics).grid(row=9, column=0, columnspan=3, sticky="w")
+        ttk.Label(panel, textvariable=self.result_path, wraplength=700).grid(row=10, column=0, columnspan=3, sticky="w", pady=8)
         result_buttons = ttk.Frame(panel)
-        result_buttons.grid(row=10, column=0, columnspan=3, sticky="w")
+        result_buttons.grid(row=11, column=0, columnspan=3, sticky="w")
         self.view_button = ttk.Button(result_buttons, text="Open 3D View", command=self.open_view, state="disabled")
         self.view_button.pack(side="left")
         self.mesh_button = ttk.Button(result_buttons, text="Open Mesh", command=lambda: self.open_view(mesh=True), state="disabled")
@@ -104,11 +123,11 @@ class DemoApp:
                                                command=self.set_camera_visibility, state="disabled")
         self.camera_checkbox.pack(side="left", padx=8)
         ttk.Label(panel, text="3D view: left-drag rotates · wheel zooms · Ctrl + left-drag pans").grid(
-            row=11, column=0, columnspan=3, sticky="w", pady=8)
+            row=12, column=0, columnspan=3, sticky="w", pady=8)
         self.log = tk.Text(panel, height=9, wrap="word", background="white", foreground="black",
                            font=("Calibri", 10), relief="solid", borderwidth=1, state="disabled")
-        self.log.grid(row=12, column=0, columnspan=3, sticky="nsew")
-        panel.rowconfigure(12, weight=1)
+        self.log.grid(row=13, column=0, columnspan=3, sticky="nsew")
+        panel.rowconfigure(13, weight=1)
         self.note("Select two photographs for pair mode or more for incremental SfM. Without Camera JSON, intrinsics are estimated per image.")
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.after(100, self.poll)
@@ -168,6 +187,12 @@ class DemoApp:
             except OSError as exc:
                 self.error(str(exc))
 
+    def switch_result(self):
+        other = self.job_results.get(not self.result.is_dense) if self.result else None
+        if other:
+            self.show_result(other, previous=True)
+            self.busy(False)
+
     def cancel(self):
         self.stop.set()
         self.cancel_button.configure(state="disabled")
@@ -194,9 +219,14 @@ class DemoApp:
             button.configure(state="disabled" if active else "normal")
         self.view_button.configure(state="normal" if not active and self.result and self.viewer is None else "disabled")
         self.quality_box.configure(state="disabled" if active else "readonly")
+        self.profile_box.configure(state="disabled" if active else "readonly")
+        dense = not active and self.dense_profile.get() != "Sparse only"
+        self.mesh_check.configure(state="normal" if dense else "disabled")
+        self.glb_check.configure(state="normal" if dense and self.mesh_requested.get() else "disabled")
+        self.switch_button.configure(state="normal" if not active and len(self.job_results) == 2 and self.viewer is None else "disabled")
         self.cancel_button.configure(state="normal" if active and not self.closing and not self.stop.is_set() else "disabled")
         self.export_button.configure(state="normal" if not active and self.result else "disabled")
-        mesh_available = self.result and self.result.representation == "dense_two_view_stereo" and (self.result.directory / "mesh.ply").is_file()
+        mesh_available = self.result and self.result.is_dense and (self.result.directory / "mesh.ply").is_file()
         self.mesh_button.configure(state="normal" if not active and mesh_available and self.viewer is None else "disabled")
         self.output_button.configure(state="normal" if not active and self.run_folder else "disabled")
 
@@ -208,13 +238,17 @@ class DemoApp:
             return
         self.result = None
         self.run_folder = None
+        self.job_results.clear()
         self.result_path.set("New reconstruction — validating input")
         self.statistics.set("Registered cameras: —    Landmarks: —")
         self.stop.clear()
         self.started = perf_counter()
         self.busy(True)
+        profile = self.dense_profile.get()
+        mesh = profile != "Sparse only" and self.mesh_requested.get()
         self.worker = threading.Thread(target=run_job, args=(self.selected_files or self.folder.get(), self.camera.get(), self.output_base,
-            lambda kind, value: self.events.put((kind, value)), self.stop, int(self.quality.get())), name="reconstruction-worker", daemon=False)
+            lambda kind, value: self.events.put((kind, value)), self.stop, int(self.quality.get()),
+            None if profile == "Sparse only" else profile, mesh, mesh and self.glb_requested.get()), name="reconstruction-worker", daemon=False)
         self.worker.start()
 
     def show_result(self, result, previous=False, elapsed=None):
@@ -222,7 +256,7 @@ class DemoApp:
         self.run_folder = result.directory
         label = "Previous result (not computed now)" if previous else "New reconstruction"
         self.stage.set(f"{label}: {result.status}")
-        point_label = "Dense stereo points" if result.representation == "dense_two_view_stereo" else "Sparse landmarks"
+        point_label = "Dense points" if result.is_dense else "Sparse landmarks"
         self.statistics.set(f"Registered cameras: {result.registered}    {point_label}: {result.landmarks:,}")
         self.result_path.set(str(result.directory))
         self.elapsed.set(f"Saved engine runtime: {result.seconds:.2f} s" + (f" · process wall time: {elapsed:.2f} s" if elapsed is not None else ""))
@@ -234,7 +268,9 @@ class DemoApp:
         folder = filedialog.askdirectory(title="Open a result folder containing metrics.json and sparse.ply or dense.ply", parent=self.root)
         if folder:
             try:
-                self.show_result(read_result(folder), previous=True)
+                result = read_result(folder)
+                self.job_results.clear()
+                self.show_result(result, previous=True)
                 self.busy(False)
             except (ValueError, OSError) as exc:
                 self.error(str(exc))
@@ -300,8 +336,11 @@ class DemoApp:
                 self.run_folder = Path(value)
                 self.result_path.set(value)
             elif kind == "result":
+                self.job_results[value[0].is_dense] = value[0]
                 self.show_result(value[0], elapsed=value[1])
                 self.started = None
+            elif kind == "notice":
+                self.note(value)
             elif kind == "error":
                 self.stage.set("Failed — see details below")
                 self.note(value)

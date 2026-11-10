@@ -1,7 +1,7 @@
 # Vision-Based-3D-Reconstruction
 Camera-independent 3D reconstruction from real-world images and videos using computer vision and Structure-from-Motion.
 
-This Computer Engineering graduation project aims to produce usable 3D assets from photographs or video without ground-truth camera poses, Unity, simulators, or COLMAP as its processing engine. The current implementation covers input, preprocessing, features, matching, two-view reconstruction and **incremental sparse multi-view SfM with bounded local bundle adjustment**. A local desktop GUI handles sparse reconstruction. An opt-in calibrated two-view stereo mode can also produce a dense cloud and an open vertex-colored mesh.
+This Computer Engineering graduation project aims to produce usable 3D assets from photographs or video without ground-truth camera poses, Unity, simulators, or COLMAP as its processing engine. The current implementation covers input, preprocessing, features, matching, two-view reconstruction and **incremental sparse multi-view SfM with bounded local bundle adjustment**. A local desktop GUI handles sparse reconstruction. Opt-in multi-view and calibrated two-view stereo modes produce dense clouds and open vertex-colored meshes.
 
 ## Setup (Windows / Python 3.12)
 
@@ -221,3 +221,17 @@ The experimental CPU stereo stage takes a successful **explicitly calibrated** p
 ```
 
 PLY exports retain the sparse world frame and arbitrary baseline scale. Camera poses and intrinsics are available as JSON. See the [completion report](docs/COMPLETION_REPORT.md) for validation and limitations.
+
+## Multi-view dense reconstruction and GLB
+
+In the desktop, choose **fast**, **balanced** or **high** under **Multi-view** and optionally enable **Colored mesh** and **GLB export**. Run with three or more overlapping registered photographs. The sparse stage finishes first and remains available if the dense stage fails or is cancelled. Use **Switch Sparse / Dense**, **Open 3D View** and **Open Mesh** to inspect the results. **Open Output Folder** exposes the validated PLY and optional GLB. Sparse-only remains the default. The separate calibrated two-photo stereo mode is still available through the CLI.
+
+```powershell
+.venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence --input datasets/sceaux/images --camera configs/sceaux.json --local-ba --output outputs/castle-sparse
+.venv\Scripts\python.exe -m vision3d.cli dense-sequence --sparse-dir outputs/castle-sparse --output outputs/castle-dense --profile fast --mesh --glb
+.venv\Scripts\python.exe scripts/benchmark_multiview.py --scene castle=outputs/castle-sparse --output outputs/castle-profiles
+```
+
+The dense stage estimates bidirectionally checked stereo depth, requires corroboration from a distinct reference and at least three cameras across the stereo edges, and fuses accepted samples in world voxels. It checks source image hashes against the sparse run. Profile settings bound resolution, attempted neighbors and reference count. Results are sensitive to overlap, pose quality and calibration. The mesh is an open visible surface with colors sampled from depth-consistent photographs. GLB stores vertex colors and normals, with a right/up/back axis transform. UV textures, OBJ export and metric scale are unavailable.
+
+Start with **fast** for meshes. Higher profiles use more memory, and optional CLI `--target-faces` simplification can take substantially longer and may retain more faces than requested. See the [evaluation](docs/MULTIVIEW_EVALUATION.md) and [engineering report](docs/MULTIVIEW_COMPLETION_REPORT.md) for measurements and limitations.
