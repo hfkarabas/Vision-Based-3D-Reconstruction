@@ -66,23 +66,29 @@ def round_trip_depth(sample, witness, tolerance, max_return_px, rgb_tolerance=.2
     return rows[accepted], rgb[accepted], error[accepted]
 
 
-def supported_samples(maps, tolerance, max_return_px, recentered_witnesses=1):
+def supported_samples(maps, tolerance, max_return_px, recentered_witnesses=1, keep_witnesses=False):
     """Count corroboration once per witness reference and weight it by pixel agreement."""
     if len({depth.reference for depth in maps}) != len(maps):
         raise ValueError("Depth corroboration needs one map per reference camera")
+    if keep_witnesses and len(maps) > 64:
+        raise ValueError("Face corroboration supports at most 64 depth references")
     accepted, diagnostics = [], []
     for sample in maps:
         counts = np.zeros(len(sample.xyz), np.int32)
         weights = np.ones(len(sample.xyz))
         colors = sample.colors.copy()
         best = np.full(len(sample.xyz), np.inf)
-        for witness in maps:
+        if keep_witnesses:
+            sample.witness_bits = np.zeros(len(sample.xyz), dtype=np.uint64)
+        for witness_index, witness in enumerate(maps):
             if (witness.reference == sample.reference
                     or {witness.reference, witness.source} == {sample.reference, sample.source}):
                 continue
             rows, rgb, error = round_trip_depth(sample, witness, tolerance, max_return_px)
             weight = 1 / (1 + (error / max_return_px) ** 2)
             counts[rows] += 1
+            if keep_witnesses:
+                sample.witness_bits[rows] |= np.uint64(1) << np.uint64(witness_index)
             weights[rows] += weight
             colors[rows] += rgb * weight[:, None]
             best[rows] = np.minimum(best[rows], error)
@@ -96,3 +102,9 @@ def supported_samples(maps, tolerance, max_return_px, recentered_witnesses=1):
         if mask.any():
             accepted.append((sample, mask, colors[mask] / weights[mask, None]))
     return accepted, diagnostics
+
+
+def shared_witness_faces(vertex_witnesses, faces, minimum):
+    """All three corners must have passed corroboration against the same depth map."""
+    common = np.bitwise_and.reduce(vertex_witnesses[faces], axis=1)
+    return np.bitwise_count(common) >= minimum

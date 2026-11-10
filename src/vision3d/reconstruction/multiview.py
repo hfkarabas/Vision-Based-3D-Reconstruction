@@ -13,7 +13,7 @@ from vision3d.geometry.camera import parse_camera
 from vision3d.io import load_image
 from .pair import export_cloud, source_hash, write_json
 from .asset_export import export_glb, export_obj
-from .dense_quality import landmark_visibility, spread_references, supported_samples
+from .dense_quality import landmark_visibility, shared_witness_faces, spread_references, supported_samples
 from .state import Pose
 from .surface import build_surface, write_mesh_ply
 from .stereo import DisparitySearchLimit, disparity_range, stereo_points, surface_triangles
@@ -59,6 +59,7 @@ class DepthMap:
     colors: np.ndarray
     transposed: bool = False
     recentered: bool = False
+    witness_bits: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -274,7 +275,7 @@ def rasterize_polygon(vertices, size):
 
 
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
-                          glb=False, stage=lambda name: None, object_masks=None, obj=False):
+                          glb=False, stage=lambda name: None, object_masks=None, obj=False, mesh_common_witnesses=False):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -289,6 +290,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     if obj and not mesh:
         raise ValueError("OBJ export requires --mesh")
     settings = PROFILES[profile]
+    if mesh_common_witnesses and (not mesh or settings.max_return_px is None):
+        raise ValueError("Common mesh witnesses require the UAV profile and --mesh")
 
     def read(name):
         return json.loads((sparse_dir / name).read_text(encoding="utf-8"))
@@ -398,7 +401,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
         accepted, support = checked_samples(maps, settings.relative_depth), None
     else:
         accepted, support = supported_samples(maps, settings.relative_depth, settings.max_return_px,
-                                              settings.recentered_witnesses)
+                                              settings.recentered_witnesses, keep_witnesses=mesh_common_witnesses)
     sample_count = sum(int(mask.sum()) for _, mask, _ in accepted)
     if len(accepted) < 2 or sample_count < 100:
         reason = f"Too little independent third-view support ({len(maps)} depth maps, {sample_count} samples)"
@@ -413,6 +416,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     xyz, colors, inverse = voxel_fuse(points, colors, voxel)
     fusion_seconds = perf_counter() - fusion_start
     surface, mesh_info = None, None
+    face_evidence = []
     mesh_start = perf_counter()
     if mesh:
         stage("Building open surface from corroborated depth")
@@ -422,6 +426,12 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
             pixels = depth.pixels[mask]
             heights = depth.depth[pixels[:, 0], pixels[:, 1]]
             local = surface_triangles(pixels, depth.depth.shape[::-1], heights, max_relative_jump=.025)
+            if mesh_common_witnesses:
+                minimum = settings.recentered_witnesses if depth.recentered else 1
+                valid = shared_witness_faces(depth.witness_bits[mask], local, minimum)
+                face_evidence.append({"reference": depth.reference, "minimum_common_witnesses": minimum,
+                                      "faces_tested": len(local), "faces_kept": int(valid.sum())})
+                local = local[valid]
             if depth.transposed:
                 local = local[:, [0, 2, 1]]
             triangles.append(inverse[offset + local])
@@ -497,6 +507,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     metrics = {"status": "success", "representation": "dense_multiview", "source_sparse": str(sparse_dir.resolve()),
                "profile": profile, "settings": asdict(settings), "object_masks": bool(polygons), "registered_images": len(poses), "dense_points": len(xyz),
                "depth_maps": len(maps), "fused_references": [d.reference for d, _, _ in accepted],
+               "mesh_common_witnesses": face_evidence if mesh_common_witnesses else None,
                "eligible_references": sorted(neighbors), "planned_references": selected, "depth_support": support,
                "raw_depth_samples": sum(len(d.xyz) for d in maps), "checked_samples": sample_count,
                "depth_canvas_pixels": used_pixels,
