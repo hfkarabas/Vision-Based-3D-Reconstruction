@@ -176,6 +176,8 @@ def main(argv=None):
     keyframes.add_argument("--max-keyframes", type=int, default=40)
     keyframes.add_argument("--min-sharpness", type=float, default=18)
     keyframes.add_argument("--min-features", type=int, default=45)
+    keyframes.add_argument("--strategy", choices=("time-uniform", "overlap-aware"), default="time-uniform",
+                           help="Method for reducing accepted candidates to the keyframe budget")
     keyframe_calibration = keyframes.add_mutually_exclusive_group()
     keyframe_calibration.add_argument("--fov-degrees", type=float)
     keyframe_calibration.add_argument("--camera", help="Shared calibration at decoded video resolution")
@@ -197,7 +199,7 @@ def main(argv=None):
         from vision3d.io.video import KeyframeOptions, extract_keyframes
         try:
             options = KeyframeOptions(**{name: args.pop(name) for name in
-                                        ("sample_hz", "max_keyframes", "min_sharpness", "min_features")})
+                                        ("sample_hz", "max_keyframes", "min_sharpness", "min_features", "strategy")})
             result = extract_keyframes(**args, options=options,
                                        stage=lambda message: print("Stage: " + message, flush=True))
         except (ValueError, OSError, cv2.error) as exc:

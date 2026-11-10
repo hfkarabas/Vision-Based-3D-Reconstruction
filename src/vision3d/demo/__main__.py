@@ -211,9 +211,15 @@ class DemoApp:
         count = simpledialog.askinteger("Video settings", "Maximum retained keyframes (2–50)",
                                         initialvalue=self.video_options.get("max_keyframes", 40),
                                         minvalue=2, maxvalue=50, parent=self.root)
-        if count is not None:
-            self.video_options = {"sample_hz": sample, "max_keyframes": count}
-            self.note(f"Video settings: {sample:g} candidates/s, at most {count} keyframes.")
+        if count is None:
+            return
+        aware = messagebox.askyesnocancel(
+            "Video settings", "Use overlap-aware keyframe selection?\n\nYes: overlap-aware\nNo: time-uniform",
+            default="yes" if self.video_options.get("strategy") == "overlap-aware" else "no", parent=self.root)
+        if aware is not None:
+            strategy = "overlap-aware" if aware else "time-uniform"
+            self.video_options = {"sample_hz": sample, "max_keyframes": count, "strategy": strategy}
+            self.note(f"Video settings: {sample:g} candidates/s, at most {count} keyframes, {strategy} selection.")
 
     def choose_output(self):
         path = filedialog.askdirectory(title="Select parent folder for new reconstruction runs", parent=self.root)
