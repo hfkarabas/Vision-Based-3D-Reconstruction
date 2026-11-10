@@ -7,6 +7,38 @@ import tempfile
 import numpy as np
 
 
+def export_obj(mesh, path):
+    """Write interoperable OBJ geometry and normals. Use PLY or GLB for colors."""
+    import open3d as o3d
+
+    path = Path(path)
+    xyz, faces = np.asarray(mesh.vertices), np.asarray(mesh.triangles)
+    normals = np.asarray(mesh.vertex_normals)
+    # A sibling file also permits Open3D's native writer to reopen it on Windows.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".obj", delete=False) as stream:
+            temporary = Path(stream.name)
+        if not o3d.io.write_triangle_mesh(str(temporary), mesh, write_vertex_colors=False, write_triangle_uvs=False):
+            raise OSError("OBJ export failed")
+        loaded = o3d.io.read_triangle_mesh(str(temporary))
+        actual = np.asarray(loaded.triangles)
+        if not loaded.has_vertex_normals() or actual.shape != faces.shape:
+            raise OSError("OBJ reload lost normals or triangles")
+        # Readers may weld identical vertices. Verify each indexed triangle corner
+        # against its source position and normal instead of assuming identical IDs.
+        for expected_data, actual_data in ((xyz, np.asarray(loaded.vertices)),
+                                           (normals, np.asarray(loaded.vertex_normals))):
+            for start in range(0, len(faces), 100000):
+                span = slice(start, start + 100000)
+                if not np.allclose(expected_data[faces[span]], actual_data[actual[span]], atol=1e-6):
+                    raise OSError("OBJ reload altered mesh positions or normals")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def export_glb(mesh, path):
     import open3d as o3d
 
@@ -58,9 +90,8 @@ def export_glb(mesh, path):
                 stream.write(memoryview(np.ascontiguousarray(array)).cast("B"))
         check = o3d.io.read_triangle_mesh(str(temp))
         loaded_faces = np.asarray(check.triangles).ravel()
-        if (not check.has_vertex_normals() or not check.has_vertex_colors()
-                or len(check.vertices) != len(xyz) or len(loaded_faces) != len(faces)):
-            raise OSError("Independent Open3D GLB reload failed")
+        if not check.has_vertex_normals() or not check.has_vertex_colors() or len(loaded_faces) != len(faces):
+            raise OSError("GLB reload lost normals, colors, or triangles")
         for actual, expected in zip((check.vertices, check.vertex_normals, check.vertex_colors), arrays):
             actual = np.asarray(actual)
             for start in range(0, len(faces), 100000):

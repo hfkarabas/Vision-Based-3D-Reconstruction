@@ -13,6 +13,10 @@ from .state import Pose
 from .pair import export_cloud, source_hash, write_json
 
 
+class DisparitySearchLimit(ValueError):
+    """The sparse geometry requires a search outside the bounded stereo canvas."""
+
+
 def disparity_range(disparities, width):
     """Infer a bounded search interval with padding from robust sparse support."""
     values = np.asarray(disparities)
@@ -23,7 +27,7 @@ def disparity_range(disparities, width):
     start = int(np.floor(low - padding))
     count = int(np.ceil((high + padding - start + 1) / 16)) * 16
     if count > min(256, width // 2) or abs(start) + count >= width:
-        raise ValueError("Sparse disparity range exceeds the bounded dense search")
+        raise DisparitySearchLimit("Sparse disparity range exceeds the bounded dense search")
     return start, count
 
 
