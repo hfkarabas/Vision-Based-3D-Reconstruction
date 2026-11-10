@@ -194,8 +194,22 @@ def main(argv=None):
     multiview.add_argument("--glb", action="store_true", help="Also export a validated vertex-colored GLB mesh")
     multiview.add_argument("--obj", action="store_true", help="Also export validated OBJ geometry and normals")
     multiview.add_argument("--target-faces", type=int)
+    asset = sub.add_parser("surface-asset", help="Validate and optimize a completed dense surface")
+    asset.add_argument("--dense-dir", required=True)
+    asset.add_argument("--sparse-dir", help="Relocated sparse artifact directory, if necessary")
+    asset.add_argument("--output", required=True)
+    asset.add_argument("--target-faces", type=int, default=450000)
+    asset.add_argument("--max-error", type=float, help="Maximum sampled P99 surface deviation in SfM units")
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
+    if selected == "surface-asset":
+        from vision3d.reconstruction.surface_asset import build_surface_asset
+        try:
+            result = build_surface_asset(**args, stage=lambda name: print("Stage: " + name, flush=True))
+        except (ValueError, OSError, KeyError, TypeError, RuntimeError) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps(result))
+        return
     if selected == "keyframes":
         from vision3d.io.video import KeyframeOptions, extract_keyframes
         try:
