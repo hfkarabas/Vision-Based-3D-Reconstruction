@@ -77,3 +77,13 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path):
     (source / "poses.json").write_text(json.dumps(poses))
     with pytest.raises(ValueError, match="three registered"):
         reconstruct_multiview(source, tmp_path / "missing")
+
+
+
+def test_object_polygon_bounds_and_fill():
+    from vision3d.reconstruction.multiview import rasterize_polygon
+
+    mask = rasterize_polygon([[.25, .25], [.75, .25], [.75, .75], [.25, .75]], (200, 100))
+    assert mask.shape == (100, 200) and mask[50, 100] and not mask[0, 0]
+    with pytest.raises(ValueError, match="normalized"):
+        rasterize_polygon([[-1, 0], [1, 0], [1, 1]], (200, 100))

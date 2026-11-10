@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from vision3d.features.cache import cached_extract
-from vision3d.features.matching import match
+from vision3d.features.pair_cache import descriptor_key, reciprocal_matches
 from vision3d.geometry import verify
 from vision3d.geometry.camera import approximate_camera, infer_camera, load_calibration, named_camera
 from vision3d.geometry.two_view import Quality, ReconstructionRejected
@@ -34,36 +34,55 @@ def load_quality(path):
         raise ValueError(f"Invalid quality configuration: {exc}") from exc
 
 
-def match_sequence(views, window, long_gap, quality, ratio, seed=0, recovery_pairs=0):
+def match_sequence(views, window, long_gap, quality, ratio, seed=0, recovery_pairs=0, *,
+                   exhaustive=False, verifier="ransac", pair_cache=None):
     pairs, pair_metrics, edges = {}, [], []
     start = perf_counter()
     ids = sorted(views)
-    def process(i, j, discovery_distance=None):
+    keys = {i: descriptor_key(v.features) for i, v in views.items()} if pair_cache is not None else {}
+    def process(i, j, discovery_distance=None, schedule="local"):
         a, b = views[i], views[j]
         cv2.setRNGSeed((seed + i * 1009 + j * 9176) % 2147483647)
-        result = match(a.features, b.features, ratio=ratio, mutual=True, geometric=False)
-        matches = result.consistent
-        fi = np.array([m.queryIdx for m in matches], dtype=int)
-        fj = np.array([m.trainIdx for m in matches], dtype=int)
+        keys_for_pair = (keys[i], keys[j]) if keys else None
+        metrics, matches, hit = reciprocal_matches(a.features, b.features, ratio, pair_cache, keys_for_pair)
+        fi = np.array([m[0] for m in matches], dtype=int)
+        fj = np.array([m[1] for m in matches], dtype=int)
         focal = min(a.camera.fx, a.camera.fy, b.camera.fx, b.camera.fy)
         # Existing fundamental verifier, now on undistorted shared virtual pixels.
-        _, mask, status = verify(a.camera.normalized(a.features.points[fi]) * focal,
+        matrix, mask, status = verify(a.camera.normalized(a.features.points[fi]) * focal,
                                  b.camera.normalized(b.features.points[fj]) * focal,
-                                 threshold=quality.essential_threshold_px, confidence=quality.confidence)
+                                 threshold=quality.essential_threshold_px, confidence=quality.confidence,
+                                 method=cv2.USAC_MAGSAC if verifier == "magsac" else cv2.FM_RANSAC)
         correspondences = np.c_[fi[mask], fj[mask]]
         if len(correspondences) >= quality.min_inliers:
             pairs[i, j] = correspondences
-            for m, keep in zip(matches, mask):
+            for (query, train, distance), keep in zip(matches, mask):
                 if keep:
-                    edges.append((float(m.distance), (i, m.queryIdx), (j, m.trainIdx)))
-        pair_metrics.append({"pair": [i, j], **result.metrics(), "undistorted_verified": int(mask.sum()),
-                             "verification_status": status, "discovery_distance": discovery_distance})
+                    edges.append((distance, (i, query), (j, train)))
+        coverage = []
+        for view, indices in ((a, fi), (b, fj)):
+            pixels = view.features.points[indices[mask]]
+            area = cv2.contourArea(cv2.convexHull(pixels)) if len(pixels) >= 3 else 0
+            coverage.append(area / (view.camera.width * view.camera.height))
+        n = int(mask.sum())
+        metrics.update(ransac_inliers=n, inlier_ratio=n / len(matches) if matches else 0,
+                       geometry_status=status, fundamental_matrix=None if matrix is None else matrix.tolist())
+        pair_metrics.append({"pair": [i, j], **metrics, "undistorted_verified": n,
+                             "verification_status": status, "inlier_coverage": coverage,
+                             "edge_status": "verified" if n >= quality.min_inliers else
+                                 ("below_minimum_inliers" if status == "estimated" else status),
+                             "schedule": schedule, "pair_cache_hit": hit, "discovery_distance": discovery_distance})
     for i in ids:
         for j in ids:
             if j > i and (j - i <= window or (long_gap > 0 and j - i == long_gap)):
                 process(i, j)
     original_components = components(views, pairs)
     attempted = {tuple(p['pair']) for p in pair_metrics}
+    if exhaustive:
+        for i in ids:
+            for j in ids:
+                if j > i and (i, j) not in attempted:
+                    process(i, j, schedule="exhaustive")
     counts = {}
     signatures = appearance_signatures(views) if recovery_pairs else {}
     for _ in range(recovery_pairs):
@@ -73,13 +92,15 @@ def match_sequence(views, window, long_gap, quality, ratio, seed=0, recovery_pai
         i, j, distance = candidate
         attempted.add((i, j))
         counts[i], counts[j] = counts.get(i, 0) + 1, counts.get(j, 0) + 1
-        process(i, j, distance)
+        process(i, j, distance, "discovery")
     matching_seconds = perf_counter() - start
     start = perf_counter()
     tracks, track_metrics = build_tracks([(a, b) for _, a, b in sorted(edges)])
     track_metrics.update(matching_seconds=matching_seconds, track_construction_seconds=perf_counter() - start)
     track_metrics['graph'] = {'components_before': original_components, 'components_after': components(views, pairs),
-                              'scheduled_pairs': sum(p['discovery_distance'] is None for p in pair_metrics),
+                              'scheduled_pairs': sum(p['schedule'] == 'local' for p in pair_metrics),
+                              'exhaustive_attempts': sum(p['schedule'] == 'exhaustive' for p in pair_metrics),
+                              'pair_cache_hits': sum(p['pair_cache_hit'] for p in pair_metrics),
                               'discovery_attempts': sum(p['discovery_distance'] is not None for p in pair_metrics),
                               'verified_edges': len(pairs), 'discovery_budget': recovery_pairs}
     return pairs, tracks, pair_metrics, track_metrics
@@ -89,7 +110,8 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                          detector="sift", max_dimension=1600, max_features=6000, ratio=0.75,
                          window=2, long_gap=4, max_images=30, min_registered=5, local_ba=False,
                          quality_config=None, seed=0, feature_cache=None, recovery_pairs=0, joint_ba=False,
-                         refine_points=False, auto_intrinsics=False):
+                         refine_points=False, auto_intrinsics=False, exhaustive=False, verifier="ransac", pair_cache=None,
+                         continuation_seed=False, probe_seeds=False):
     start = perf_counter()
     stages = {k: 0.0 for k in ("loading_preprocessing", "features", "matching", "tracks", "initial_pair",
                                "registration", "triangulation", "bundle_adjustment", "validation", "export")}
@@ -109,7 +131,13 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
     if not isinstance(recovery_pairs, int) or not 0 <= recovery_pairs <= 30:
         raise ValueError('Recovery pair budget must be 0..30')
     geometry, pnp_quality, bundle = load_quality(quality_config)
+    if verifier not in ("ransac", "magsac"):
+        raise ValueError("Unknown fundamental matrix verifier")
+    if exhaustive and recovery_pairs:
+        raise ValueError("Exhaustive scheduling already evaluates every pair")
     candidates = image_paths(input_path)
+    if exhaustive and len(candidates) > 30:
+        raise ValueError("Exhaustive matching is limited to 30 images")
     if len(candidates) > max_images:
         raise ValueError("Image limit exceeded; select a smaller directory or increase --max-images")
     output = Path(output)
@@ -167,19 +195,25 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
                            "min_registered": min_registered, "local_ba": local_ba, "seed": seed,
                            "opencv_threads": 1, "feature_cache": str(Path(feature_cache).resolve()) if feature_cache else None,
                            "recovery_pairs": recovery_pairs, "joint_ba": joint_ba, "refine_points": refine_points,
-                            "auto_intrinsics": auto_intrinsics,
+                            "auto_intrinsics": auto_intrinsics, "exhaustive": exhaustive, "verifier": verifier,
+                            "continuation_seed": continuation_seed, "probe_seeds": probe_seeds,
                            "geometry": asdict(geometry), "registration": asdict(pnp_quality), "bundle": asdict(bundle)},
                 "versions": {n: importlib.metadata.version(n) for n in ("vision3d", "numpy", "scipy", "opencv-contrib-python", "open3d")}}
     write_json(output / "manifest.json", manifest)
     write_json(output / "intrinsics.json", intrinsics)
-    pairs, tracks, pair_metrics, track_metrics = match_sequence(views, window, long_gap, geometry, ratio, seed, recovery_pairs)
+    pairs, tracks, pair_metrics, track_metrics = match_sequence(views, window, long_gap, geometry, ratio, seed, recovery_pairs,
+                                                               exhaustive=exhaustive, verifier=verifier, pair_cache=pair_cache)
     stages["matching"] = track_metrics["matching_seconds"]
     stages["tracks"] = track_metrics["track_construction_seconds"]
     write_json(output / "pairs.json", pair_metrics)
+    if exhaustive or recovery_pairs:
+        np.savez_compressed(output / "verified_pairs.npz", **{f"{a}_{b}": matches for (a, b), matches in pairs.items()})
     state = State(views, tracks)
     phase_start = perf_counter()
     try:
-        initial, candidates = select_initial(views, pairs, geometry, tracks, seed)
+        initial, candidates = select_initial(views, pairs, geometry, tracks, seed,
+                                             continuation_min=pnp_quality.min_inliers if continuation_seed or probe_seeds else None,
+                                             probe_quality=pnp_quality if probe_seeds else None)
         initialize(state, initial, geometry)
     except ReconstructionRejected as exc:
         stages["initial_pair"] = perf_counter() - phase_start

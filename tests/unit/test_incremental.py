@@ -310,3 +310,17 @@ def test_joint_bundle_requires_actual_anchor_observations(scene):
     state.registration_order = [0, 1, 2, 3, 4]
     state.landmarks = {i: Landmark(i, p, np.full(3, .5), {2:i, 3:i, 4:i}) for i,p in enumerate(xyz)}
     assert local_bundle_adjust(state, joint=True)['reason'] == 'joint_window_not_anchored'
+
+
+
+def test_seed_probe_accepts_a_third_pose_without_mutating_live_state(scene):
+    from vision3d.reconstruction.incremental import RegistrationQuality
+
+    state, _, _ = scene
+    pairs = {(0, 1): np.c_[np.arange(100), np.arange(100)]}
+    initial, diagnostics = select_initial(state.views, pairs, tracks=state.tracks,
+                                          continuation_min=20, probe_quality=RegistrationQuality())
+    assert initial[1:3] == (0, 1)
+    assert diagnostics[0]["best_third_view_support"] > 80
+    assert diagnostics[0]["continuation_probes"][-1]["reason"] == "accepted"
+    assert not state.poses and not state.landmarks

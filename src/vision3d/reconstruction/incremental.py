@@ -25,8 +25,10 @@ class RegistrationQuality:
             raise ValueError("Invalid PnP quality thresholds")
 
 
-def select_initial(views, pairs, quality=Quality(), tracks=None, seed=0):
+def select_initial(views, pairs, quality=Quality(), tracks=None, seed=0, continuation_min=None, probe_quality=None):
     """Rank only geometrically accepted pairs, using support, angle and cheirality."""
+    from collections import Counter
+
     candidates, diagnostics = [], []
     lookup = {(i, f): tid for tid, t in (tracks or {}).items() for i, f in t.observations.items()}
     for (i, j), correspondences in sorted(pairs.items()):
@@ -50,9 +52,42 @@ def select_initial(views, pairs, quality=Quality(), tracks=None, seed=0):
         score = compatible * min(m["median_triangulation_angle_degrees"] / 5, 2) * m["cheirality_ratio"] * m["valid_point_ratio"]
         diagnostics.append({"pair": [i, j], "status": "accepted", "score": score, "compatible_tracks": compatible, **m})
         candidates.append((score, i, j, result, correspondences))
+        if continuation_min is not None and tracks is not None:
+            support = Counter()
+            for k in result["point_indices"]:
+                fi, fj = map(int, correspondences[k])
+                tid = lookup.get((i, fi))
+                if tid is not None and tid == lookup.get((j, fj)):
+                    support.update(set(tracks[tid].observations) - {i, j})
+            diagnostics[-1]["best_third_view_support"] = max(support.values(), default=0)
     if not candidates:
         raise ReconstructionRejected("no_geometrically_valid_initial_pair", {"initial_candidates": diagnostics})
-    return max(candidates, key=lambda c: (c[0], -c[1], -c[2])), diagnostics
+    viable = {(d["pair"][0], d["pair"][1]) for d in diagnostics
+              if continuation_min is not None and d.get("best_third_view_support", 0) >= continuation_min}
+    ranked = sorted(candidates, key=lambda c: ((c[1], c[2]) in viable, c[0], -c[1], -c[2]), reverse=True)
+    if probe_quality is not None and tracks is not None:
+        from .state import State
+
+        records = {tuple(d["pair"]): d for d in diagnostics if d["status"] == "accepted"}
+        for candidate in ranked[:12]:
+            _, i, j, _, _ = candidate
+            if (i, j) not in viable:
+                continue
+            trial = State(views, tracks)
+            initialize(trial, candidate, quality)
+            others = sorted((k for k in views if k not in trial.poses),
+                            key=lambda k: registration_priority(trial, k), reverse=True)
+            attempts = records[i, j]["continuation_probes"] = []
+            for k in others[:5]:
+                _, xyz, _ = pnp_correspondences(trial, k)
+                if len(xyz) < probe_quality.min_inliers:
+                    continue
+                cv2.setRNGSeed((seed + k * 1009 + 2 * 9176) % 2147483647)
+                accepted, metrics = register(trial, k, probe_quality, quality)
+                attempts.append({"image_id": k, **metrics})
+                if accepted:
+                    return candidate, diagnostics
+    return ranked[0], diagnostics
 
 
 def observation_quality(state, xyz, image_id, feature_id, max_error):
@@ -181,15 +216,19 @@ def pnp_correspondences(state, image_id):
 
 def estimate_pnp(xyz, pixels, camera, quality=RegistrationQuality()):
     xyz, pixels = np.asarray(xyz, np.float64), np.asarray(pixels, np.float64)
-    metrics = {"correspondences": len(xyz)}
+    metrics = {"correspondences": len(xyz), "pnp_attempted": False}
     if xyz.shape != (len(xyz), 3) or pixels.shape != (len(xyz), 2) or not np.isfinite(xyz).all() or not np.isfinite(pixels).all():
         raise ValueError("PnP requires finite paired Nx3 and Nx2 arrays")
+    if len(pixels) >= 3:
+        metrics["candidate_image_coverage"] = float(cv2.contourArea(cv2.convexHull(pixels.astype(np.float32)))) / (camera.width * camera.height)
     if len(xyz) < quality.min_inliers or np.linalg.matrix_rank(xyz - xyz.mean(axis=0)) < 2:
         return None, np.zeros(len(xyz), bool), {**metrics, "reason": "insufficient_or_collinear_2d3d"}
     try:
+        metrics["pnp_attempted"] = True
         ok, rvec, tvec, indices = cv2.solvePnPRansac(xyz, pixels, camera.K, camera.D,
             iterationsCount=quality.iterations, reprojectionError=quality.max_error_px,
             confidence=0.999, flags=cv2.SOLVEPNP_EPNP)
+        metrics["ransac_inliers"] = 0 if indices is None else len(indices)
         if not ok or indices is None or len(indices) < quality.min_inliers:
             return None, np.zeros(len(xyz), bool), {**metrics, "reason": "pnp_ransac_failed"}
         rvec, tvec = cv2.solvePnPRefineLM(xyz[indices.ravel()], pixels[indices.ravel()], camera.K, camera.D, rvec, tvec)
