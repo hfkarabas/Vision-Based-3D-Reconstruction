@@ -63,7 +63,7 @@ $env:OMP_NUM_THREADS='4'
 
 ## Mission III — validated surfaces and photographic UV assets
 
-**IN PROGRESS.** Use the fixed Mission II PLYs, their original sparse manifests and photographs, and the expanded Rural input. Write new experiments to `outputs/airzoo-benchmark/major-surface-improvement/`. Initial full regression passed 174 tests. The initial index was empty. Unrelated deliverable changes and captures were left in the working tree.
+**IN PROGRESS for surface integrity and Unity validation.** The optimized and UV-textured asset workflows passed real reconstruction, export and desktop worker validation. All new experiments are in `outputs/airzoo-benchmark/major-surface-improvement/`. The fixed Mission II inputs and unrelated deliverable edits were preserved. The initial suite passed 174 tests and the final suite passed 181.
 
 Previously validated engineering commits recovered at startup:
 
@@ -79,4 +79,16 @@ Mesh milestone validated on both fixed scenes. Open3D's orientation routine left
 - The reserved-depth audit measured four Urban pairs and found a small loss of depth agreement after simplification. Rural had no viable pair whose cameras were both excluded from all successful dense depth maps. Open3D rendered both actual textured GLBs. The Unity 6000.6.1f1 native OBJ import attempt exited 198 with no valid editor license. The isolated validation harness is in `unity-tools/` for replay after activation. No Unity import or rendering is verified.
 - Tkinter controls and the real Rural desktop geometry-to-texture worker passed. Release suite passed **179 tests**. Seam welding rejected 1 Rural and 4 Urban candidates at half a dense voxel because the result failed the topology gate. The seam method remains an isolated experiment. Next validate the combined benchmark replay, capture topology probe results and finalize the requested reports.
 - `faceb5a` — real-photo UV atlas, validated GLB/OBJ/MTL export, desktop job and textured Open3D viewer.
-- The full Rural benchmark replay produced the identical textured GLB SHA-256 `2a37f8dd42987f4406908f1462f2faa2e414e6b51db1885ed60e1f43c39c2eff`. Both final meshes had intersections in all eight compact probe neighborhoods. The visibility-and-overlap experiment found no faces it could safely remove in either scene. The shared-witness dense face experiment is running on both fixed inputs. It retains the same point clouds and requires one common reference for native faces and two for recentered faces. It remains opt-in while being measured.
+- `5b75d93` — benchmark replay, reserved stereo, topology and overlap diagnostics, and reproducible seam experiment.
+- The full Rural benchmark replay produced the identical textured GLB SHA-256 `2a37f8dd42987f4406908f1462f2faa2e414e6b51db1885ed60e1f43c39c2eff`. Both final meshes had intersections in all eight compact probe neighborhoods. The visibility-and-overlap experiment found no faces it could safely remove in either scene. Shared-witness depth retained the original point clouds and rejected 7,575 Rural and 8,333 Urban grid faces. It also found intersections in all neighborhoods and did not improve the Urban held-out 2% agreement. The benchmark assets remain `rural-export/` and `urban-export/`. The geometry target settings are 450,000 Rural and 900,000 Urban with 4096 atlases and stride-7 appearance holdout. The opt-in dense rule has real-scene and synthetic test coverage.
+
+### Reproduction and continuation
+
+```powershell
+$p='outputs/airzoo-benchmark/major-surface-improvement'
+.venv/Scripts/python.exe -B scripts/benchmark_surface_assets.py --scene rural --output "$p/replay-rural-next"
+.venv/Scripts/python.exe -B scripts/benchmark_surface_assets.py --scene urban --output "$p/replay-urban-next"
+.venv/Scripts/python.exe -B scripts/audit_surface_topology.py --mesh "$p/urban-geometry/mesh.ply" --output "$p/urban-topology-next.json"
+```
+
+Start further surface research from the original UAV depth inputs and the first-hit reserved stereo and intersection probes. Test any layer-aware fusion replacement on the same fixed inputs and require improved depth agreement and intersection evidence before promoting it. Unity is blocked by editor activation. After activation, replay `unity-tools/check_surface_import.ps1` under the output root with `-UnityEditor`, `-ExportDirectory "$p/rural-export"` and a fresh `-ProjectDirectory`. No sparse or dense benchmark needs to be repeated to recover the results already recorded here.

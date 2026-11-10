@@ -11,9 +11,11 @@ The fixed 40-image Rural and Urban dense meshes from the previous mission are th
 | Photographic UV coverage by area | 32.62% | 21.73% |
 | Textured GLB size | 22.95 MB | 37.06 MB |
 
-Both GLB and OBJ/MTL reloaded through Open3D. Rural's benchmark replay reproduced the textured GLB byte-for-byte. The new texture controls and the desktop subprocess stages ran against a real saved Rural reconstruction. The 48-image run yielded an independently reloaded GLB with 248,023 faces and 34.15% photographic coverage. The full test suite passed 179 tests before the shared-witness depth experiment.
+Both GLB and OBJ/MTL reloaded through Open3D. Rural's benchmark replay reproduced the textured GLB byte-for-byte. The new texture controls and the desktop subprocess stages ran against a real saved Rural reconstruction. The 48-image run yielded an independently reloaded GLB with 248,023 faces and 34.15% photographic coverage. The final test suite passed 181 tests.
 
 The topology and bounded distance checks support use as optimized open meshes. All eight sampled neighborhoods in each optimized mesh still contained intersections. The camera-facing winding repair and simplification increase fragmentation. The sub-voxel weld and the conservative intersection experiment failed to establish defensible fixes on the real scenes. Rural's reserved stereo views produced no viable pair. Urban's four reserved pairs measured a small decrease in depth agreement. These are internal and held-out depth checks in an arbitrary SfM frame. Unity 6000.6.1f1 could not import in batch mode because the editor has no active license.
+
+The optional shared-witness gate rejected 7,575 Rural and 8,333 Urban input-grid triangles while retaining both dense point clouds. All eight neighborhoods in each variant still showed intersections. The gate did not improve Urban agreement with the four reserved stereo pairs, so the selected benchmark assets use the original UAV dense meshes.
 
 Run the benchmark driver from the repository root with fresh output directories. The previously saved sparse and dense runs must be locally available.
 

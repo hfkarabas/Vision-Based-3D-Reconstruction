@@ -9,6 +9,7 @@ from vision3d.reconstruction.dense_quality import landmark_visibility, round_tri
 from vision3d.reconstruction.multiview import DepthMap, plan_depth, recenter_rectification
 from vision3d.reconstruction.state import Pose
 from vision3d.reconstruction.surface import build_surface
+from vision3d.reconstruction.dense_quality import shared_witness_faces
 
 
 def test_view_budget_rewards_uncovered_valid_landmarks():
@@ -102,3 +103,8 @@ def test_recentered_depth_requires_two_distinct_supporting_references(monkeypatc
     assert report[0]["witness_histogram"] == [0, 1]
     accepted, _ = dense_quality.supported_samples([sample, same_edge, witness, depth(3, 1)], .02, 1.5, 2)
     assert accepted[0][0] is sample
+def test_mesh_face_requires_a_witness_shared_across_all_corners():
+    masks = np.array([0b011, 0b101, 0b110, 0b111], dtype=np.uint64)
+    faces = np.array([[0, 1, 2], [0, 1, 3]])
+    assert shared_witness_faces(masks, faces, 1).tolist() == [False, True]
+    assert shared_witness_faces(masks, faces, 2).tolist() == [False, False]
