@@ -36,6 +36,7 @@ def test_five_view_cli_and_exports(tmp_path, monkeypatch):
     assert metrics["valid_landmarks"] > 100
     assert metrics["after_final_ba"]["invalid_observations"] == 0
     assert metrics["bundle_adjustment"]
+    assert "map_recovery" not in metrics
     import open3d as o3d
     cloud = o3d.io.read_point_cloud(str(output / "sparse.ply"))
     assert len(cloud.points) == metrics["valid_landmarks"] and cloud.has_colors()
@@ -46,7 +47,7 @@ def test_five_view_cli_and_exports(tmp_path, monkeypatch):
     second = tmp_path / "warm"
     main(["reconstruct-sequence", "--input", str(source), "--camera", str(camera),
           "--output", str(second), "--max-features", "2000", "--max-dimension", "800", "--local-ba",
-          "--feature-cache", str(tmp_path / "cache")])
+          "--feature-cache", str(tmp_path / "cache"), "--map-recovery-pairs", "0"])
     warm = json.loads((second / "metrics.json").read_text())
     assert warm["feature_cache_hits"] == 6
     assert warm["registration_order"] == metrics["registration_order"]
