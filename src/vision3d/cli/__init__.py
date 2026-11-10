@@ -155,8 +155,23 @@ def main(argv=None):
     dense.add_argument("--pair-dir", required=True)
     dense.add_argument("--output", required=True)
     dense.add_argument("--mesh", action="store_true", help="Export an open vertex-colored stereo surface")
+    multiview = sub.add_parser("dense-sequence", help="Fuse independently checked multi-view stereo depth")
+    multiview.add_argument("--sparse-dir", required=True)
+    multiview.add_argument("--output", required=True)
+    multiview.add_argument("--profile", choices=("fast", "balanced", "high"), default="balanced")
+    multiview.add_argument("--mesh", action="store_true")
+    multiview.add_argument("--glb", action="store_true", help="Also export a validated vertex-colored GLB mesh")
+    multiview.add_argument("--target-faces", type=int)
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
+    if selected == "dense-sequence":
+        from vision3d.reconstruction.multiview import reconstruct_multiview
+        try:
+            result = reconstruct_multiview(**args, stage=lambda name: print("Stage: " + name, flush=True))
+        except (ValueError, OSError, KeyError, TypeError, cv2.error) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps(result))
+        return
     if selected == "dense-pair":
         from vision3d.reconstruction.stereo import reconstruct_dense_pair
         try:
