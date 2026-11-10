@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from vision3d.demo import support
-from vision3d.io.video import KeyframeOptions, VideoInfo, extract_keyframes, inspect_video, video_camera
+from vision3d.io.video import (KeyframeOptions, VideoInfo, extract_keyframes, inspect_video, select_by_overlap,
+                               video_camera)
 
 
 @pytest.fixture
@@ -35,10 +36,11 @@ def clip(tmp_path):
     return path
 
 
-def test_video_keyframes_score_overlap_blur_and_duplicates(clip, tmp_path):
+@pytest.mark.parametrize("strategy", ["time-uniform", "overlap-aware"])
+def test_video_keyframes_score_overlap_blur_and_duplicates(clip, tmp_path, strategy):
     assert inspect_video(clip) == VideoInfo(320, 240, 8, 16)
     output = tmp_path / "selected"
-    report = extract_keyframes(clip, output, KeyframeOptions(sample_hz=8, max_keyframes=4))
+    report = extract_keyframes(clip, output, KeyframeOptions(sample_hz=8, max_keyframes=4, strategy=strategy))
     decisions = Counter(item["decision"] for item in report["decisions"])
     assert decisions["near_duplicate"] >= 5
     assert decisions["blur"] == 1
@@ -48,10 +50,50 @@ def test_video_keyframes_score_overlap_blur_and_duplicates(clip, tmp_path):
     assert selected[0]["frame_index"] == 0 and selected[-1]["frame_index"] >= 13
     assert [f["frame_index"] for f in selected] == sorted(f["frame_index"] for f in selected)
     assert any(f.get("inliers", 0) >= 12 for f in selected)
+    diagnostics = report["selection"]
+    assert diagnostics["verified_neighbor_pairs"] + diagnostics["weak_neighbor_transitions"] == 3
+    assert sum(diagnostics["source_frame_interval_counts"].values()) == 3
+    assert diagnostics["temporal_coverage_fraction"] == pytest.approx(selected[-1]["frame_index"] / 15)
+    assert diagnostics["near_duplicate_neighbor_pairs"] == 0
+    if strategy == "time-uniform":
+        assert diagnostics["evaluated_overlap_pairs"] == 3
     assert cv2.imread(str(output / "frames" / selected[0]["filename"])).shape[:2] == (240, 320)
     calibration = json.loads((output / "camera.json").read_text())
     assert calibration["approximate"] and calibration["source"] == "video focal-length prior"
     assert calibration["fx"] == pytest.approx(400)
+
+
+def test_overlap_selection_keeps_bridges_without_choosing_near_duplicates():
+    candidates = [{"frame_index": 10 * i} for i in range(13)]
+    uniform = [0, 3, 6, 9, 12]
+    supported = {(0, 3), (3, 5), (5, 8), (8, 12)}
+    near_duplicate = {(0, 1), (1, 2), (2, 3), (3, 12)}
+
+    def measure(i, j):
+        if (i, j) in near_duplicate:
+            return {"inliers": 100, "inlier_ratio": 1.0, "shift": .001}
+        if (i, j) in supported:
+            return {"inliers": 30, "inlier_ratio": .5, "shift": .02}
+        return {"inliers": 5, "inlier_ratio": .1, "shift": .03}
+
+    assert select_by_overlap(candidates, uniform, measure) == [0, 3, 5, 8, 12]
+
+
+def test_overlap_search_is_bounded_and_preserves_endpoints():
+    count = 1200
+    candidates = [{"frame_index": i} for i in range(count)]
+    uniform = np.linspace(0, count - 1, 40).round().astype(int).tolist()
+    calls = 0
+
+    def measure(i, j):
+        nonlocal calls
+        calls += 1
+        return {"inliers": 50, "inlier_ratio": .5, "shift": .02}
+
+    selected = select_by_overlap(candidates, uniform, measure)
+    assert selected == sorted(set(selected))
+    assert (len(selected), selected[0], selected[-1]) == (40, 0, count - 1)
+    assert calls <= 15 * count
 
 
 def test_video_intrinsics_scale_and_explicit_calibration(clip, tmp_path):
@@ -122,7 +164,8 @@ def test_desktop_video_worker_passes_selected_frames_and_calibration(clip, tmp_p
 
     monkeypatch.setattr(support, "run_child", child)
     support.run_job(clip, "", tmp_path / "runs", lambda *event: events.append(event),
-                    threading.Event(), video_options={"sample_hz": 8})
+                    threading.Event(), video_options={"sample_hz": 8, "strategy": "overlap-aware"})
     assert len(commands) == 2
+    assert commands[0][commands[0].index("--strategy") + 1] == "overlap-aware"
     assert any(kind == "result" for kind, _ in events), events
     assert any(kind == "validated" and value["video"] for kind, value in events)

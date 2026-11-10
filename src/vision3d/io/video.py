@@ -2,6 +2,7 @@
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from statistics import median
 from time import perf_counter
 
 import cv2
@@ -33,6 +34,7 @@ class KeyframeOptions:
     max_keyframes: int = 40
     min_sharpness: float = 18.0
     min_features: int = 45
+    strategy: str = "time-uniform"
 
     def __post_init__(self):
         if not np.isfinite(self.sample_hz) or not 0.5 <= self.sample_hz <= 12:
@@ -41,6 +43,8 @@ class KeyframeOptions:
             raise ValueError("Keyframe limit must be an integer from 2 to 50")
         if not np.isfinite(self.min_sharpness) or self.min_sharpness < 0 or not 8 <= self.min_features <= 700:
             raise ValueError("Invalid minimum sharpness or feature count")
+        if self.strategy not in ("time-uniform", "overlap-aware"):
+            raise ValueError("Unknown keyframe selection strategy")
 
 
 def open_video(path):
@@ -110,10 +114,75 @@ def overlap(previous, current):
             "inlier_ratio": support / len(matches) if matches else 0.0}
 
 
+def verified_overlap(evidence):
+    return evidence["inliers"] >= 12 and evidence["inlier_ratio"] >= .25
+
+
+def select_by_overlap(candidates, uniform, measure):
+    """Find a fixed-budget, endpoint-to-endpoint path in a bounded temporal graph."""
+    count = len(candidates)
+    budget = len(uniform)
+    target_gap = (candidates[-1]["frame_index"] - candidates[0]["frame_index"]) / (budget - 1)
+    reach = max(8, round(2.5 * (count - 1) / (budget - 1)))
+    offsets = set(range(1, 9)) | set(np.linspace(8, reach, 6).round().astype(int))
+    baseline_next = dict(zip(uniform, uniform[1:]))
+    incoming = [[] for _ in candidates]
+    for i, start in enumerate(candidates[:-1]):
+        neighbors = {min(i + step, count - 1) for step in offsets}
+        if i in baseline_next:
+            neighbors.add(baseline_next[i])
+        for j in sorted(neighbors):
+            evidence = measure(i, j)
+            shift = evidence["shift"] or 0.0
+            weak = not verified_overlap(evidence)
+            # Saturate the overlap reward so it cannot make near-duplicates
+            # preferable to supported motion. Displacement is a motion proxy.
+            support = min(evidence["inliers"] / 65, 1.0) if not weak else 0.0
+            motion = min(shift / .025, 1.0) if not weak else 0.0
+            gap = (candidates[j]["frame_index"] - start["frame_index"]) / target_gap
+            score = support + .30 * motion - .15 * (gap - 1)**2
+            incoming[j].append((i, int(weak or shift < .006), score))
+
+    # First minimize weak or near-duplicate steps. Then favor supported motion
+    # and a reasonably even spread. The baseline path guarantees reachability.
+    previous = {0: (0, 0.0)}
+    parents = []
+    for steps in range(1, budget):
+        current, back = {}, {}
+        for j in range(steps, count - (budget - steps - 1)):
+            for i, weak, score in incoming[j]:
+                if i in previous:
+                    rank = (previous[i][0] - weak, previous[i][1] + score)
+                    if j not in current or rank > current[j]:
+                        current[j], back[j] = rank, i
+        parents.append(back)
+        previous = current
+    path = [count - 1]
+    for back in reversed(parents):
+        path.append(back[path[-1]])
+    return path[::-1]
+
+
+def selection_diagnostics(selected, evidence, decoded):
+    indices = [row["frame_index"] for row in selected]
+    intervals = [b - a for a, b in zip(indices, indices[1:])]
+    passed = sum(verified_overlap(pair) for pair in evidence)
+    return {
+        "median_neighbor_inliers": median(pair["inliers"] for pair in evidence) if evidence else None,
+        "verified_neighbor_pairs": passed,
+        "weak_neighbor_transitions": len(evidence) - passed,
+        "near_duplicate_neighbor_pairs": sum(pair["mutual"] >= 12 and pair["shift"] < .006 for pair in evidence),
+        "source_frame_interval_counts": dict(sorted(Counter(intervals).items())),
+        "temporal_coverage_fraction": (indices[-1] - indices[0]) / (decoded - 1) if indices else 0.0,
+        "neighbor_pairs": [{"source_frames": [a, b], "verified": verified_overlap(pair), **pair}
+                           for a, b, pair in zip(indices, indices[1:], evidence)],
+    }
+
+
 def choose_candidates(path, options, stage, cancelled):
     capture, info, frame = open_video(path)
     stride = max(1, round(info.fps / options.sample_hz), (info.frames + 1199) // 1200)
-    accepted, decisions = [], []
+    accepted, decisions, candidate_features = [], [], []
     previous = lost = None
     lost_count = segment = 0
     decoded = 0
@@ -160,7 +229,7 @@ def choose_candidates(path, options, stage, cancelled):
                     row["decision"] = "near_duplicate"
                     lost, lost_count = None, 0
                     continue
-                if evidence["inliers"] < 12 or evidence["inlier_ratio"] < .25:
+                if not verified_overlap(evidence):
                     # Restart only when a second nearby candidate corroborates a
                     # new segment. Single abrupt cut/blur samples are discarded.
                     link = overlap(lost, features) if lost is not None else None
@@ -174,6 +243,7 @@ def choose_candidates(path, options, stage, cancelled):
                     segment += 1
             row.update(decision="candidate", segment=segment)
             accepted.append(row)
+            candidate_features.append(features)
             previous, lost, lost_count = features, None, 0
         else:
             raise ValueError("Video exceeds the 10 minute decode limit")
@@ -181,13 +251,32 @@ def choose_candidates(path, options, stage, cancelled):
         capture.release()
     if decoded < info.frames - max(2, int(info.frames * .05)):
         raise ValueError(f"Video ended unexpectedly after {decoded} of {info.frames} declared frames")
-    if len(accepted) > options.max_keyframes:
-        keep = set(np.linspace(0, len(accepted)-1, options.max_keyframes).round().astype(int))
-        for i, row in enumerate(accepted):
-            if i not in keep:
-                row["decision"] = "budget"
-        accepted = [row for i, row in enumerate(accepted) if i in keep]
-    return info, decoded, stride, accepted, decisions
+    stage(f"Selecting keyframes ({options.strategy}) and measuring final overlap")
+    measured = {}
+
+    def measure(i, j):
+        if cancelled():
+            raise InterruptedError("Keyframe selection cancelled")
+        if (i, j) not in measured:
+            cv2.setRNGSeed((accepted[i]["frame_index"] * 1009 + accepted[j]["frame_index"] * 9176) % 2147483647)
+            measured[i, j] = overlap(candidate_features[i], candidate_features[j])
+            if len(measured) % 250 == 0:
+                stage(f"Evaluated {len(measured)} candidate overlap pairs")
+        return measured[i, j]
+
+    budget = min(options.max_keyframes, len(accepted))
+    keep = np.linspace(0, len(accepted) - 1, budget).round().astype(int).tolist()
+    if options.strategy == "overlap-aware" and len(accepted) > budget:
+        keep = select_by_overlap(accepted, keep, measure)
+    evidence = [measure(i, j) for i, j in zip(keep, keep[1:])]
+    retained = set(keep)
+    for i, row in enumerate(accepted):
+        if i not in retained:
+            row["decision"] = "budget"
+    selected = [accepted[i] for i in keep]
+    diagnostics = selection_diagnostics(selected, evidence, decoded)
+    diagnostics["evaluated_overlap_pairs"] = len(measured)
+    return info, decoded, stride, selected, decisions, diagnostics
 
 
 def extract_keyframes(video, output, options=KeyframeOptions(), fov_degrees=None,
@@ -203,7 +292,7 @@ def extract_keyframes(video, output, options=KeyframeOptions(), fov_degrees=None
     cv2.setNumThreads(1)
     cv2.setRNGSeed(0)
     stage("Inspecting MP4 and scoring sampled frames")
-    info, decoded, stride, accepted, decisions = choose_candidates(video, options, stage, cancelled)
+    info, decoded, stride, accepted, decisions, diagnostics = choose_candidates(video, options, stage, cancelled)
     if camera is not None:
         if fov_degrees is not None:
             raise ValueError("Choose either explicit video calibration or an assumed FOV")
@@ -214,7 +303,7 @@ def extract_keyframes(video, output, options=KeyframeOptions(), fov_degrees=None
         calibration = video_camera(info, fov_degrees)
     report = {"source": str(video), "video": {**asdict(info), "seconds": info.seconds},
               "timestamp_basis": "frame_index/fps (nominal)", "decoded_frames": decoded, "sample_stride": stride,
-              "options": asdict(options), "selected": accepted, "decisions": decisions,
+              "options": asdict(options), "selected": accepted, "decisions": decisions, "selection": diagnostics,
               "intrinsics": calibration.to_dict(),
               "intrinsics_basis": "provided calibration file" if camera is not None else "estimated focal prior"}
     output.mkdir(parents=True, exist_ok=False)
