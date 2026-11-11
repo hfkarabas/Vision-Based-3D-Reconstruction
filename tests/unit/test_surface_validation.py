@@ -23,6 +23,14 @@ def test_winding_repair_resolves_shared_edge_without_discarding_valid_faces():
     assert report["boundary_edges"] == 4
 
 
+def test_weighted_winding_preserves_planar_edge_under_opposing_input_order():
+    mesh = plane(0, inconsistent=True)
+    result = repair_winding(mesh, geometry_weighted=True)
+    assert result["contradictory_edges"] == 0
+    assert topology(mesh)[1]["winding_conflicts"] == 0
+    assert len(mesh.triangles) == 2
+
+
 def test_surface_deviation_detects_parallel_offset():
     report = sampled_deviation(plane(0), plane(.02), samples=1000)
     assert report["distance_p50_p95_p99"] == pytest.approx([.02] * 3, abs=1e-7)

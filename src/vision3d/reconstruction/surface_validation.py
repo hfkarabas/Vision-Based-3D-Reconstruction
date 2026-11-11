@@ -133,6 +133,14 @@ def orient_to_cameras(mesh, views):
     resolved = (support >= 2) & (np.abs(scores) >= support / 3)
     flip = resolved & (scores < 0)
     faces[flip[labels]] = faces[flip[labels]][:, [0, 2, 1]]
+    cancelled = update_surface_normals(mesh)
+    return {"camera_resolved_components": int(resolved.sum()), "camera_flipped_components": int(flip.sum()),
+            "faces_with_camera_resolved_orientation": int(resolved[labels].sum()),
+            "faces_flipped": int(flip[labels].sum()), "cancelled_vertex_normals_recovered": cancelled}
+
+
+def update_surface_normals(mesh):
+    xyz, faces = mesh_arrays(mesh)
     mesh.compute_vertex_normals()
     vertex_normals = np.asarray(mesh.vertex_normals)
     cancelled = np.flatnonzero(np.linalg.norm(vertex_normals, axis=1) < 1e-7)
@@ -141,9 +149,7 @@ def orient_to_cameras(mesh, views):
         _, cross, area = face_geometry(xyz, incident)
         largest = np.argmax(area)
         vertex_normals[vertex] = cross[largest] / (2 * area[largest])
-    return {"camera_resolved_components": int(resolved.sum()), "camera_flipped_components": int(flip.sum()),
-            "faces_with_camera_resolved_orientation": int(resolved[labels].sum()),
-            "faces_flipped": int(flip[labels].sum()), "cancelled_vertex_normals_recovered": len(cancelled)}
+    return len(cancelled)
 
 
 def sampled_deviation(source, destination, samples=30000):
@@ -165,7 +171,7 @@ def sampled_deviation(source, destination, samples=30000):
             "unsigned_normal_angle_p50_p95_deg": np.degrees(np.arccos(np.percentile(cosine.clip(0, 1), [50, 5]))).tolist()}
 
 
-def repair_winding(mesh):
+def repair_winding(mesh, geometry_weighted=False):
     """Solve shared-edge winding constraints and cut faces on contradictory cycles."""
     xyz, faces = mesh_arrays(mesh)
     a, b = faces.ravel(), faces[:, [1, 2, 0]].ravel()
@@ -175,10 +181,28 @@ def repair_winding(mesh):
     first = first[count == 2]
     left, right = order[first], order[first + 1]
     parity = (a[left] > b[left]) == (a[right] > b[right])
+    face_a, face_b = left // 3, right // 3
+    _, cross, areas = face_geometry(xyz, faces)
+    forest = np.arange(len(left))
+    if geometry_weighted:
+        from scipy.sparse import csr_matrix
+        from scipy.sparse.csgraph import minimum_spanning_tree
+
+        normals = cross / np.maximum(2 * areas[:, None], 1e-30)
+        agreement = np.sum(normals[face_a] * normals[face_b], axis=1) * np.where(parity, -1, 1)
+        length = np.linalg.norm(xyz[a[left]] - xyz[b[left]], axis=1)
+        # Use the strongest geometric ties first, with low priority for folds.
+        weight = length * (.05 + .95 * ((agreement.clip(-1, 1) + 1) / 2) ** 2)
+        graph = csr_matrix((-weight, (face_a, face_b)), shape=(len(faces), len(faces)))
+        tree = minimum_spanning_tree(graph).tocoo()
+        edge_id = face_a.astype(np.int64) * len(faces) + face_b
+        tree_id = tree.row.astype(np.int64) * len(faces) + tree.col
+        forest = np.flatnonzero(np.isin(edge_id, tree_id))
     adjacent = np.full(faces.size, -1, np.int32)
     opposite = np.zeros(faces.size, dtype=bool)
-    adjacent[left], adjacent[right] = right // 3, left // 3
-    opposite[left], opposite[right] = parity, parity
+    first, last = left[forest], right[forest]
+    adjacent[first], adjacent[last] = last // 3, first // 3
+    opposite[first], opposite[last] = parity[forest], parity[forest]
     state = np.full(len(faces), -1, np.int8)
     for root in range(len(faces)):
         if state[root] >= 0:
@@ -191,10 +215,13 @@ def repair_winding(mesh):
                 if neighbor >= 0 and state[neighbor] < 0:
                     state[neighbor] = int(state[current]) ^ int(opposite[edge])
                     queue.append(int(neighbor))
-    broken = (state[left // 3] != state[right // 3]) != parity
-    ends = np.column_stack((left[broken] // 3, right[broken] // 3))
-    _, _, areas = face_geometry(xyz, faces)
-    cut = np.unique(ends[np.arange(len(ends)), np.argmin(areas[ends], axis=1)])
+    broken = (state[face_a] != state[face_b]) != parity
+    ends = np.column_stack((face_a[broken], face_b[broken]))
+    cut_cost = areas[ends]
+    if geometry_weighted:
+        degree = np.bincount(ends.ravel(), minlength=len(faces))
+        cut_cost /= degree[ends]
+    cut = np.unique(ends[np.arange(len(ends)), np.argmin(cut_cost, axis=1)])
     flip = state == 1
     faces[flip] = faces[flip][:, [0, 2, 1]]
     if len(cut):
@@ -203,10 +230,11 @@ def repair_winding(mesh):
         mesh.remove_triangles_by_mask(remove)
         mesh.remove_unreferenced_vertices()
     return {"winding_faces_flipped": int(flip.sum()), "contradictory_faces_cut": len(cut),
-            "contradictory_area_removed": float(areas[cut].sum())}
+            "contradictory_area_removed": float(areas[cut].sum()),
+            "geometry_weighted": geometry_weighted, "contradictory_edges": int(broken.sum())}
 
 
-def optimize_surface(mesh, views, target_faces, max_error):
+def optimize_surface(mesh, views, target_faces, max_error, geometry_weighted=False):
     """Try quadric decimation and accept only bounded, topology-checked surfaces."""
     if target_faces < 100 or not np.isfinite(max_error) or max_error <= 0:
         raise ValueError("Expected at least 100 target faces and positive maximum deviation")
@@ -218,7 +246,7 @@ def optimize_surface(mesh, views, target_faces, max_error):
     candidate.remove_degenerate_triangles()
     candidate.remove_duplicated_triangles()
     candidate.remove_unreferenced_vertices()
-    winding = repair_winding(candidate)
+    winding = repair_winding(candidate, geometry_weighted=geometry_weighted)
     orientation = {**winding, **orient_to_cameras(candidate, views)}
     _, after = topology(candidate)
     forward, reverse = sampled_deviation(mesh, candidate), sampled_deviation(candidate, mesh)

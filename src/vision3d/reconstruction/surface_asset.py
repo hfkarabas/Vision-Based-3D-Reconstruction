@@ -14,7 +14,7 @@ from .surface_validation import optimize_surface, surface_views
 
 
 def build_surface_asset(dense_dir, output, target_faces=450000, max_error=None, sparse_dir=None,
-                        stage=lambda message: None):
+                        stage=lambda message: None, geometry_weighted_winding=False):
     start = perf_counter()
     dense_dir, output = Path(dense_dir), Path(output)
     if output.exists():
@@ -35,7 +35,8 @@ def build_surface_asset(dense_dir, output, target_faces=450000, max_error=None, 
     original = o3d.io.read_triangle_mesh(str(dense_dir / "mesh.ply"))
     if not original.has_vertex_colors():
         raise ValueError("Surface assets require a colored source mesh")
-    mesh, report = optimize_surface(original, views, target_faces, max_error)
+    mesh, report = optimize_surface(original, views, target_faces, max_error,
+                                    geometry_weighted=geometry_weighted_winding)
     del original
     stage("Exporting and reloading the optimized PLY and GLB")
     output.mkdir(parents=True, exist_ok=False)

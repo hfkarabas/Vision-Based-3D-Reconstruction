@@ -8,7 +8,7 @@ import open3d as o3d
 from .pair import write_json
 from .surface_texture import bake_texture
 from .surface_validation import surface_views
-from .textured_export import export_textured_glb, export_textured_obj
+from .textured_export import export_textured_glb, export_textured_obj, prepare_texture_mesh
 
 
 def build_texture_asset(surface_dir, output, atlas_size=4096, holdout_stride=0, units_per_world=1.,
@@ -22,6 +22,7 @@ def build_texture_asset(surface_dir, output, atlas_size=4096, holdout_stride=0, 
         raise ValueError("Expected a successful surface-asset run")
     views = surface_views(result["sparse_dir"])
     mesh = o3d.io.read_triangle_mesh(str(surface_dir / "mesh.ply"))
+    mesh, export_geometry = prepare_texture_mesh(mesh, units_per_world)
     atlas = bake_texture(mesh, views, atlas_size, holdout_stride, stage=stage, front_faces_only=front_faces_only)
     stage("Exporting and independently reloading the photographic GLB")
     output.mkdir(parents=True, exist_ok=False)
@@ -32,6 +33,7 @@ def build_texture_asset(surface_dir, output, atlas_size=4096, holdout_stride=0, 
         export_textured_obj(mesh, atlas, output / "textured.obj", units_per_world=units_per_world)
     report = {"status": "success", "surface_dir": str(surface_dir.resolve()),
               "export_units_per_sfm_unit": units_per_world, "metric_scale_verified": False,
+              "export_geometry": export_geometry,
               "texture": atlas.metrics, "atlas_bytes": len(encoded),
               "obj_bytes": (output / "textured.obj").stat().st_size if obj else None,
               "glb_bytes": (output / "textured.glb").stat().st_size, "runtime_seconds": perf_counter() - start,

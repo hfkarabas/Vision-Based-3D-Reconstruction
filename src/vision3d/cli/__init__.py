@@ -202,6 +202,8 @@ def main(argv=None):
     asset.add_argument("--output", required=True)
     asset.add_argument("--target-faces", type=int, default=450000)
     asset.add_argument("--max-error", type=float, help="Maximum sampled P99 surface deviation in SfM units")
+    asset.add_argument("--geometry-weighted-winding", action="store_true",
+                       help="Preserve geometrically coherent edge ties when resolving winding")
     texture = sub.add_parser("texture-asset", help="Project source photographs onto a validated surface and export GLB")
     texture.add_argument("--surface-dir", required=True)
     texture.add_argument("--output", required=True)
