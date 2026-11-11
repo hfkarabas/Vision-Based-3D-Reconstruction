@@ -206,6 +206,8 @@ def main(argv=None):
                            help="Reuse an exact fusion grid origin with --fusion-voxel-size")
     multiview.add_argument("--recovery-pairs", type=int,
                            help="Budget of alternate stereo pairs for opt-in conditioned recovery")
+    multiview.add_argument("--recover-empty-depth", action="store_true",
+                           help="Experimentally fuse independently corroborated alternate depths at empty primary pixels (no mesh)")
     multiview.add_argument("--mesh-common-witnesses", action="store_true",
                            help="Require all three mesh corners to share the UAV depth witnesses")
     asset = sub.add_parser("surface-asset", help="Validate and optimize a completed dense surface")

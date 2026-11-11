@@ -39,7 +39,7 @@ def _add_vote(state, rows, reference, source, maps, centers):
 
 
 def recover_depth(maps, accepted, centers, alternatives, build, budget, tolerance, return_px, disparity,
-                  recentered_witnesses, stage):
+                  recentered_witnesses, stage, observe_alternate=None):
     """Add independent witnesses to previously plausible primary samples, leaving accepted depth untouched."""
     by_ref = {d.reference: (mask, rgb) for d, mask, rgb in accepted}
     states, priorities = {}, {}
@@ -77,6 +77,8 @@ def recover_depth(maps, accepted, centers, alternatives, build, budget, toleranc
             if witness is None:
                 continue
             record["recentered"] = witness.recentered
+            if observe_alternate is not None:
+                observe_alternate(witness)
             for state in states.values():
                 d = state.depth
                 if not len(state.eligible) or {reference, source} & {d.reference, d.source}:
