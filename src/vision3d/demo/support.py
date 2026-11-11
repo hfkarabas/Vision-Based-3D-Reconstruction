@@ -40,8 +40,10 @@ def validate_inputs(selection, camera, max_images=30):
     for path in files:
         try:
             with Image.open(path) as im:
-                if im.format not in {"JPEG", "PNG"}:
+                if im.format not in {"JPEG", "PNG", "MPO"}:
                     raise OSError("Not a JPEG or PNG")
+                if im.format == "MPO":
+                    im.seek(0)
                 im.load()
                 sizes.append(ImageOps.exif_transpose(im).size)
                 valid.append(path)
@@ -82,7 +84,8 @@ def allocate_run(base):
     return run
 
 
-def reconstruction_command(selection, camera, output, *, max_dimension=1600, enhanced=False, cache=None, video=False):
+def reconstruction_command(selection, camera, output, *, max_dimension=1600, enhanced=False, cache=None, video=False,
+                           uav=False):
     folder = isinstance(selection, (str, Path))
     files = supported_images(selection) if folder else image_paths(selection)
     if len(files) == 2:
@@ -95,6 +98,12 @@ def reconstruction_command(selection, camera, output, *, max_dimension=1600, enh
             args += ["--window", "4", "--long-gap", "8", "--max-images", "50"]
             if not enhanced:
                 args += ["--recovery-pairs", "12"]
+        elif uav:
+            args += ["--max-images", "80"]
+            if len(files) > 30:
+                args += ["--window", "4", "--long-gap", "8", "--map-recovery-pairs", "30"]
+                if not enhanced:
+                    args += ["--recovery-pairs", "12"]
         if enhanced:
             args += ["--exhaustive"] if len(files) <= 30 else ["--recovery-pairs", "30"]
             args += ["--verifier", "magsac", "--probe-seeds", "--ratio", "0.80"]
@@ -252,7 +261,8 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, 
             folder = keyframes / "frames"
             camera = keyframes / "camera.json"
         emit("stage", "Validating readable images and calibration")
-        validation = validate_inputs(folder, camera, max_images=50 if video else 30)
+        uav = bool(profile and profile.startswith("uav"))
+        validation = validate_inputs(folder, camera, max_images=50 if video else 80 if uav else 30)
         emit("validated", {**validation, "automatic_intrinsics": automatic, "video": video})
         if stop.is_set():
             return
@@ -261,7 +271,7 @@ def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, 
             emit("run", str(run))
         output = run / "reconstruction"
         command = reconstruction_command(validation["files"], camera, output, max_dimension=max_dimension,
-                                         enhanced=enhanced, cache=Path(base) / "pair-cache", video=video)
+                                         enhanced=enhanced, cache=Path(base) / "pair-cache", video=video, uav=uav)
         (run / "demo_request.json").write_text(json.dumps({"command": command, "validation": validation,
                                                               "keyframe_manifest": str(keyframes / "keyframes.json") if video else None}, indent=2), encoding="utf-8")
         started = perf_counter()
