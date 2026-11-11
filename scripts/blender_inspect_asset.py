@@ -244,7 +244,10 @@ def main():
     framing = json.loads(args.framing.read_text(encoding="utf-8"))["framing"] if args.framing else None
     output.mkdir(parents=True, exist_ok=False)
     frame = render_views(materials, points, output, framing, args.resolution)
-    report = {"blender": bpy.app.version_string, "asset": str(asset), "triangles": len(faces),
+    with asset.open("rb") as stream:
+        asset_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+    report = {"blender": bpy.app.version_string, "asset": str(asset), "asset_sha256": asset_hash,
+              "atlas_sha256": atlas, "triangles": len(faces),
               "textured_faces": int(photo.sum()), "textured_area_fraction": coverage, "materials": used,
               "material_faces": counts, "bounds": [points.min(axis=0).tolist(), points.max(axis=0).tolist()],
               "topology": topology, "bounded_intersection_probes": probes, "framing": frame,
