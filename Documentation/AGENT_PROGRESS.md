@@ -182,7 +182,7 @@ Grid provenance traces 10,547/10,555 Rural and 14,700/14,739 Urban sampled raw i
 
 ## MISSION III-D — FINAL GEOMETRIC RECOVERY AND RELEASE
 
-**IN PROGRESS.** Starting at `dc4f83a`. Existing changes to academic deliverables and capture files are preserved. Experiments use `outputs/airzoo-benchmark/mission-iii-d/`. Mission III-C reports, saved sparse poses, depth rasters and validated assets are the controls. No previous benchmark will be overwritten.
+**COMPLETE for the scoped MVP.** Starting revision `dc4f83a`. Existing changes to academic deliverables and capture files are preserved. Experiments use `outputs/airzoo-benchmark/mission-iii-d/`. Mission III-C reports, saved sparse poses, depth rasters and validated assets remain the controls.
 
 First compare surface generation on frozen Rural and Urban probes. Then advance coverage, desktop usability and final release validation independently if the mesh experiment fails. The current `uav-recovery` profile remains opt-in.
 
@@ -213,3 +213,4 @@ First compare surface generation on frozen Rural and Urban probes. Then advance 
 - `manifest.json` binds 27 copied files to SHA-256 values and the six Blender reports. All 12 repeated renders are pixel-identical. The accepted desktop and no-cache CLI results remain under `mission-iii-d/`. The final targeted suite passed 62 tests. The comprehensive suite passed 216 with 14 dependency deprecation warnings. The existing uv environment passed compatibility checks for 75 packages.
 - **PASS WITH LIMITATIONS** for the advertised graduation-project MVP. The fresh CLI and desktop worker produced photo assets, and the visible Urban preview passed orbit, pan, zoom, fit and close. Coverage gaps, nonadjacent surface overlaps, partial texturing and uncertain metric scale remain documented. Unity and Ctrl-drag pan remain unverified. No further experiment is required for this scoped release.
 - Reproduction commands and local artifacts are listed in `Documentation/FINAL_RELEASE_REPORT.md`. `Documentation/INSTALLATION.md` and `Documentation/DEMO_GUIDE.md` describe setup and the saved and live demos.
+- `0f2725b` commits the release builder, export attestation, acceptance documentation and regression tests. The machine-readable verdict is in `outputs/final-release/release-candidate/acceptance.json`. Generated assets remain local.
