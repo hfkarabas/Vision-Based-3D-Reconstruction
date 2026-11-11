@@ -79,7 +79,23 @@ def cell_medians(xy, values):
     return dict(zip(map(tuple, cells), medians, strict=True))
 
 
-def evaluation(sparse, dsm, variants, output, fixed_offset=None):
+def exact_point_comparison(baseline, candidate):
+    """Measure whether a point-weighted residual change comes from changed membership."""
+    xyz_before, error_before = baseline
+    xyz_after, error_after = candidate
+    point_key = np.dtype((np.void, 3 * xyz_before.dtype.itemsize))
+    _, before, after = np.intersect1d(
+        np.ascontiguousarray(xyz_before).view(point_key).ravel(),
+        np.ascontiguousarray(xyz_after).view(point_key).ravel(), return_indices=True)
+    only_before, only_after = np.ones(len(xyz_before), bool), np.ones(len(xyz_after), bool)
+    only_before[before] = only_after[after] = False
+    return {"identical_points": len(before), "only_baseline_points": int(only_before.sum()),
+            "only_variant_points": int(only_after.sum()), "identical_absolute_residual_m": q(abs(error_before[before])),
+            "only_baseline_absolute_residual_m": q(abs(error_before[only_before])),
+            "only_variant_absolute_residual_m": q(abs(error_after[only_after]))}
+
+
+def survey_alignment(sparse, dsm):
     from pyproj import Transformer
 
     _, views, stations, geodetic, _, basis, tilt = station_metadata(sparse)
@@ -111,12 +127,19 @@ def evaluation(sparse, dsm, variants, output, fixed_offset=None):
         xy_complex = coefficient * (local[:, 0] + 1j * local[:, 1]) + offset
         return np.column_stack((xy_complex.real, xy_complex.imag, scale * local[:, 2] + z_offset))
 
+    return raster, geo, {
+        "horizontal_crs": crs, "srs_origin": xml.findtext("SRSOrigin"), "pixel_transform": raster.affine.tolist(),
+        "raster_shape": [raster.height, raster.width], "nodata_tag": raster.nodata,
+        "meters_per_sfm_unit": scale, "alignment_up_tilt_deg": q(tilt), "ppk_fit_horizontal_m": q(residual),
+        "ppk_fit_ellipsoidal_height_m": q(z_residual), "leave_one_station_out_horizontal_m": held}
+
+
+def evaluation(sparse, dsm, variants, output, fixed_offset=None, full_resolution=False):
     if fixed_offset is not None and not np.isfinite(fixed_offset):
         raise ValueError("The DSM offset must be finite")
-    result = {"horizontal_crs": crs, "srs_origin": xml.findtext("SRSOrigin"), "pixel_transform": raster.affine.tolist(),
-              "raster_shape": [raster.height, raster.width], "nodata_tag": raster.nodata,
-              "meters_per_sfm_unit": scale, "alignment_up_tilt_deg": q(tilt), "ppk_fit_horizontal_m": q(residual),
-              "ppk_fit_ellipsoidal_height_m": q(z_residual), "leave_one_station_out_horizontal_m": held,
+    raster, geo, alignment = survey_alignment(sparse, dsm)
+    result = {**alignment,
+              "sample_policy": "all fused points" if full_resolution else "bounded systematic sampling of sorted fused points",
               "note": "Alignment uses only PPK and gimbal metadata. The DSM vertical datum is unverified. Centered residuals use the fixed baseline median as a datum proxy and do not establish absolute accuracy.",
               "variants": {}}
     output.mkdir(parents=True, exist_ok=False)
@@ -124,13 +147,15 @@ def evaluation(sparse, dsm, variants, output, fixed_offset=None):
     cell_counts = {}
     residuals_by_cell = {}
     baseline = fixed_offset
+    baseline_points = None
     for name, directory in variants:
         directory = Path(directory)
         points = np.asarray(o3d.io.read_point_cloud(str(directory / "dense.ply")).points)
         xy = geo(points)[:, :2]
         cells = np.unique(np.floor(xy / .5).astype(np.int64), axis=0)
         cell_counts[name] = set(map(tuple, cells))
-        samples = geo(points[::max(1, (len(points) + 179999) // 180000)])
+        stride = 1 if full_resolution else max(1, (len(points) + 179999) // 180000)
+        samples = geo(points[::stride])
         depth = raster.sample(samples[:, :2])
         mask = np.isfinite(depth)
         delta = samples[mask, 2] - depth[mask]
@@ -149,8 +174,15 @@ def evaluation(sparse, dsm, variants, output, fixed_offset=None):
              "over_10m_from_centered_dsm_fraction": float((abs(centered) > 10).mean()),
              "below_dsm_by_10m_fraction": float((centered < -10).mean()),
              "above_dsm_by_10m_fraction": float((centered > 10).mean()), "views": []}
+        if full_resolution:
+            observed = (points[mask], centered)
+            if baseline_points is None:
+                baseline_points = observed
+            else:
+                result["variants"][name]["exact_point_comparison"] = exact_point_comparison(baseline_points, observed)
         provenance_path = directory / "depth-observations/manifest.json"
-        clouds.append((name, samples[mask], centered))
+        plot_stride = max(1, (len(centered) + 179999) // 180000)
+        clouds.append((name, samples[mask][::plot_stride], centered[::plot_stride]))
         if not provenance_path.is_file():
             continue
         provenance = read(provenance_path)
@@ -216,5 +248,7 @@ if __name__ == "__main__":
     parser.add_argument("--variant", nargs=2, action="append", required=True, metavar=("LABEL", "PATH"))
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--fixed-offset", type=float, help="Reuse a baseline vertical offset in meters")
+    parser.add_argument("--full-resolution", action="store_true",
+                        help="Evaluate every fused point and compare exact point membership")
     args = parser.parse_args()
-    evaluation(args.sparse, args.dsm, args.variant, args.output, args.fixed_offset)
+    evaluation(args.sparse, args.dsm, args.variant, args.output, args.fixed_offset, args.full_resolution)
