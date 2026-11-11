@@ -114,7 +114,7 @@ class DemoApp:
         self.mesh_check.pack(side="left", padx=8)
         self.glb_check = ttk.Checkbutton(dense_options, text="GLB export", variable=self.glb_requested, state="disabled")
         self.glb_check.pack(side="left")
-        self.texture_check = ttk.Checkbutton(dense_options, text="Photo texture", variable=self.texture_requested,
+        self.texture_check = ttk.Checkbutton(dense_options, text="Photo GLB + OBJ", variable=self.texture_requested,
                                              state="disabled")
         self.texture_check.pack(side="left", padx=(8, 0))
         self.switch_button = ttk.Button(dense_options, text="Switch Sparse / Dense",
@@ -419,23 +419,23 @@ class DemoApp:
             elif kind == "result":
                 self.job_results[value[0].is_dense] = value[0]
                 self.show_result(value[0], elapsed=value[1])
-                self.started = None
             elif kind == "notice":
                 self.note(value)
             elif kind == "texture":
                 self.textured_path = Path(value)
                 self.run_folder = self.textured_path.parent
-                self.stage.set("Photographic GLB ready")
+                self.stage.set("Photographic GLB and OBJ ready")
                 self.result_path.set(str(self.run_folder))
-                self.note(f"Saved photographic GLB: {value}")
+                self.note(f"Saved photographic GLB and OBJ in {self.run_folder}. Keep OBJ, MTL and atlas together.")
             elif kind == "error":
                 self.stage.set("Failed — see details below")
                 self.note(value)
-                self.started = None
             # The done event may precede thread exit. Controls are re-enabled below only after exit.
         if self.worker is not None and not self.worker.is_alive():
             self.worker.join()
             self.worker = None
+            if self.started is not None:
+                self.elapsed.set(f"Total run: {perf_counter() - self.started:.1f} s")
             self.started = None
             if not self.closing:
                 self.busy(False)
@@ -451,7 +451,7 @@ class DemoApp:
             except (OSError, ValueError):
                 pass  # A status-file write may be in progress.
             if status.get("status") == "open" and not self.viewer_reported:
-                self.note(f"Open3D view opened: {status['points']} colored PLY vertices.")
+                self.note(f"Open3D opened {status['model']}: {status['points']:,} vertices. {status['controls']}.")
                 self.viewer_reported = True
             if status.get("status") == "open" and not self.closing:
                 self.camera_checkbox.configure(state="normal" if status.get("cameras_available") else "disabled")
