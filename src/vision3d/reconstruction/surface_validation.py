@@ -171,15 +171,20 @@ def sampled_deviation(source, destination, samples=30000):
             "unsigned_normal_angle_p50_p95_deg": np.degrees(np.arccos(np.percentile(cosine.clip(0, 1), [50, 5]))).tolist()}
 
 
-def repair_winding(mesh, geometry_weighted=False):
-    """Solve shared-edge winding constraints and cut faces on contradictory cycles."""
-    xyz, faces = mesh_arrays(mesh)
+def paired_edges(faces, vertex_count):
+    """Return directed edge endpoints and the slots for each exactly two-face edge."""
     a, b = faces.ravel(), faces[:, [1, 2, 0]].ravel()
-    keys = np.minimum(a, b).astype(np.int64) * len(xyz) + np.maximum(a, b)
+    keys = np.minimum(a, b).astype(np.int64) * vertex_count + np.maximum(a, b)
     order = np.argsort(keys)
     _, first, count = np.unique(keys[order], return_index=True, return_counts=True)
     first = first[count == 2]
-    left, right = order[first], order[first + 1]
+    return a, b, order[first], order[first + 1]
+
+
+def repair_winding(mesh, geometry_weighted=False):
+    """Solve shared-edge winding constraints and cut faces on contradictory cycles."""
+    xyz, faces = mesh_arrays(mesh)
+    a, b, left, right = paired_edges(faces, len(xyz))
     parity = (a[left] > b[left]) == (a[right] > b[right])
     face_a, face_b = left // 3, right // 3
     _, cross, areas = face_geometry(xyz, faces)
