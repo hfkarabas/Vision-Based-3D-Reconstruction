@@ -194,6 +194,7 @@ def main(argv=None):
     multiview.add_argument("--glb", action="store_true", help="Also export a validated vertex-colored GLB mesh")
     multiview.add_argument("--obj", action="store_true", help="Also export validated OBJ geometry and normals")
     multiview.add_argument("--target-faces", type=int)
+    multiview.add_argument("--depth-diagnostics", action="store_true", help="Save rectified depth maps and sampled fusion provenance")
     multiview.add_argument("--mesh-common-witnesses", action="store_true",
                            help="Require all three mesh corners to share the UAV depth witnesses")
     asset = sub.add_parser("surface-asset", help="Validate and optimize a completed dense surface")

@@ -60,6 +60,7 @@ class DepthMap:
     transposed: bool = False
     recentered: bool = False
     witness_bits: np.ndarray | None = None
+    overlap_pixels: int = 0
 
 
 @dataclass(frozen=True)
@@ -182,7 +183,8 @@ def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse,
     depth[pixels[:, 0], pixels[:, 1]] = local @ r1[2]
     xyz = (local - a.translation) @ a.rotation
     return DepthMap(reference, source, r1 @ a.rotation, r1 @ a.translation, projection,
-                    depth, images[0], pixels, xyz, colors, vertical, plan.recentered)
+                    depth, images[0], pixels, xyz, colors, vertical, plan.recentered,
+                    overlap_pixels=int(np.count_nonzero(masks[0] & masks[1])))
 
 
 def corroborate(xyz, rgb, witness, tolerance):
@@ -275,7 +277,8 @@ def rasterize_polygon(vertices, size):
 
 
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
-                          glb=False, stage=lambda name: None, object_masks=None, obj=False, mesh_common_witnesses=False):
+                          glb=False, stage=lambda name: None, object_masks=None, obj=False, mesh_common_witnesses=False,
+                          depth_diagnostics=False):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -357,6 +360,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     cv2.setNumThreads(1)
     depth_start = perf_counter()
     maps, attempts = [], []
+    plans = {}
     used_pixels = 0
     for index, reference in enumerate(selected, 1):
         stage(f"Estimating depth for reference {index}/{len(selected)}")
@@ -370,7 +374,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
             if depth_attempts == settings.attempts:
                 break
             b, plan = cameras[source], None
-            if settings.preflight_pairs:
+            if settings.preflight_pairs or depth_diagnostics:
                 try:
                     plan = plan_depth(poses[reference], poses[source], a, b, xyz, recenter=recenter)
                 except (ValueError, cv2.error) as exc:
@@ -390,6 +394,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                 stage(f"Depth pair {reference}/{source} skipped: {exc}")
                 continue
             maps.append(depth)
+            if depth_diagnostics:
+                plans[reference] = plan
             used_pixels += a.width * a.height
             attempts.append({"reference": reference, "source": source, "depth_pixels": len(depth.xyz),
                              "recentered": recenter})
@@ -401,7 +407,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
         accepted, support = checked_samples(maps, settings.relative_depth), None
     else:
         accepted, support = supported_samples(maps, settings.relative_depth, settings.max_return_px,
-                                              settings.recentered_witnesses, keep_witnesses=mesh_common_witnesses)
+                                              settings.recentered_witnesses,
+                                              keep_witnesses=mesh_common_witnesses or depth_diagnostics)
     sample_count = sum(int(mask.sum()) for _, mask, _ in accepted)
     if len(accepted) < 2 or sample_count < 100:
         reason = f"Too little independent third-view support ({len(maps)} depth maps, {sample_count} samples)"
@@ -463,6 +470,9 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     export_start = perf_counter()
     output.mkdir(parents=True, exist_ok=False)
     export_cloud(output / "dense.ply", xyz, colors)
+    if depth_diagnostics:
+        from .depth_diagnostics import save_depth_diagnostics
+        save_depth_diagnostics(output, maps, accepted, inverse, plans, poses)
     if support is not None:
         coverage = output / "depth-coverage"
         coverage.mkdir()
