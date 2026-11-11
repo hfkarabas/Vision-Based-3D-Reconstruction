@@ -146,8 +146,8 @@ def reconstruct_sequence(input_path, output, camera=None, approximate=False, foc
         raise ValueError("Choose a camera configuration, automatic intrinsics or explicit approximate intrinsics")
     if not approximate and (focal_px is not None or fov_degrees is not None):
         raise ValueError("Focal/FOV assumptions require explicit approximate intrinsics")
-    if not 1 <= window <= 10 or not 0 <= long_gap <= 30 or not 2 <= max_images <= 50 or min_registered < 2:
-        raise ValueError("Invalid sequence bounds: window 1..10, long gap 0..30, images 2..50, registration target >=2")
+    if not 1 <= window <= 10 or not 0 <= long_gap <= 30 or not 2 <= max_images <= 100 or min_registered < 2:
+        raise ValueError("Invalid sequence bounds: window 1..10, long gap 0..30, images 2..100, registration target >=2")
     if not 0 < ratio < 1:
         raise ValueError("Ratio must be between 0 and 1")
     if not 1 <= max_features <= 20000 or max_dimension < 2:
