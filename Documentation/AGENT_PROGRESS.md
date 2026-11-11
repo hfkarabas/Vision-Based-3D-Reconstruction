@@ -198,3 +198,10 @@ First compare surface generation on frozen Rural and Urban probes. Then advance 
 - `5d01d9c` records the validated geometry experiment and independent tests. Original shape and camera defaults are retained.
 - A no-cache CLI run ingested 40 original DJI photos and registered 28. It exported 896,742 dense points and a 437,682-face textured asset in 376.48 s. `production-fresh-command.json`, `production-fresh/workflow.json`, `production-fresh-final-gates.json` and `blender-fresh/` record the arguments and gates.
 - `reconstruct-asset --dense-dir` validates the saved mesh and its profile, then resumes at surface optimization in a fresh directory. The real resume took 36.39 s and produced byte-identical GLB, OBJ, MTL and atlas. `production-resumed/workflow.json` records both reused stages.
+
+### Desktop completion
+
+- `ecf8a24` commits dense resume and SHA-256 validation of Blender workflow evidence.
+- Desktop photo export writes GLB and the OBJ/MTL/atlas bundle. The main timer runs through export. Open3D fits bounds to the live viewport, including standalone textured models. F/R restore framing. I/J/K/L provide a keyboard pan option alongside the existing mouse gesture.
+- Hidden Tk with the real worker processed 12 Rural DJI photos, registered four and exported 177,580 dense points plus both photographic formats in 53.15 s. The main loop advanced 484 observations. A restart was cancelled after the child log opened. See `desktop-worker-final/desktop-validation.json`.
+- A visible desktop click opened the saved Urban GLB. Orbit, keyboard pan, wheel zoom and F fit/reset visibly worked. The previous Rural crop was corrected. Closing Open3D restored the desktop controls. The Ctrl-drag pan gesture and physical input file selection were not verified in this UI test. Status evidence is under `desktop-interactive-final/viewers/`.

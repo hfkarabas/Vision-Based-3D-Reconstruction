@@ -54,6 +54,52 @@ class CameraControl:
         return False
 
 
+def fit_zoom(bounds, view, aspect, field_of_view):
+    """Fit the eight scene bounds corners inside 90% of the perspective viewport."""
+    from itertools import product
+    import numpy as np
+
+    low, high = bounds
+    extent = max(float(np.max(high - low)), 1e-12)
+    corners = np.array(list(product(*zip(low, high, strict=True)))) - view["lookat"]
+    right = np.cross(view["up"], view["front"])
+    half_fov = np.tan(np.deg2rad(field_of_view / 2))
+    projected = np.maximum(np.abs(corners @ right) / aspect, np.abs(corners @ view["up"]))
+    distance = np.max(corners @ view["front"] + projected / (.9 * half_fov))
+    distance += .03 * extent
+    return max(.6, float(distance * half_fov / extent))
+
+
+def reset_view(vis, view, bounds):
+    """Reset framing, including any change in the window aspect ratio."""
+    vis.reset_view_point(True)
+    control = vis.get_view_control()
+    intrinsics = control.convert_to_pinhole_camera_parameters().intrinsic
+    aspect = intrinsics.width / max(intrinsics.height, 1)
+    control.set_lookat(view["lookat"])
+    control.set_front(view["front"])
+    control.set_up(view["up"])
+    control.set_zoom(fit_zoom(bounds, view, max(aspect, .1), control.get_field_of_view()))
+    return False
+
+
+def standalone_view(points, textured):
+    import numpy as np
+
+    center = points.min(axis=0) + np.ptp(points, axis=0) / 2
+    # GLB export flips down/forward axes. Keep its baked geometry and orient
+    # only the preview. PLY uses the reconstruction's OpenCV world axes.
+    front = np.array([.35, .55, 1.])
+    up = np.array([0., 1., 0.])
+    if not textured:
+        front[1:] *= -1
+        up[1] = -1
+    front /= np.linalg.norm(front)
+    up -= up.dot(front) * front
+    up /= np.linalg.norm(up)
+    return {"lookat": center, "front": front, "up": up}
+
+
 def load_cloud(path):
     import numpy as np
     import open3d as o3d
@@ -147,32 +193,37 @@ def main(argv=None):
         if args.textured:
             options.mesh_color_option = o3d.visualization.MeshColorOption.Color
             options.light_on = False
-        visualizer.reset_view_point(True)
         # Camera-aligned framing changes only the view, not the actual exported points.
         from .view_geometry import camera_view, camera_frustum, load_context, load_intrinsics
-        context_status = "default_view_no_camera_metadata"
+        points = np.asarray(points)
+        view = standalone_view(points, args.textured)
+        context_status = "standalone_fitted_view"
         cameras = axes_toggle = None
+        active_overlays = {}
+        model_bounds = (points.min(axis=0), points.max(axis=0))
+        context_bounds = model_bounds
+        context_center = None
+        def reset(vis):
+            if any(active_overlays.values()):
+                return reset_view(vis, {**view, "lookat": context_center}, context_bounds)
+            return reset_view(vis, view, model_bounds)
+
+        def pan(vis, dx, dy):
+            vis.get_view_control().translate(dx, dy)
+            return False
+
         def open_status():
             status("open", points=len(points), ply=str(Path(args.ply).resolve()), viewpoint=context_status,
                    cameras_available=cameras is not None, cameras_visible=bool(cameras and cameras.shown),
                    axes_visible=bool(axes_toggle and axes_toggle.shown),
-                   display_filter="none; every exported point is displayed",
-                   controls="Show Cameras: C or desktop checkbox; R reset; A coordinate axes (when metadata available)")
+                   model=label,
+                   controls="Left drag orbit · Ctrl + left drag or I/J/K/L pan · scroll zoom · R or F fit/reset · C cameras · A axes")
         try:
             poses = [] if args.textured else load_context(args.ply)
-            view = camera_view(np.asarray(points), [p['world_to_camera'] for p in poses])
-            active_overlays = {}
-            context_center = view['lookat']
-            def reset(vis):
-                control = vis.get_view_control()
-                control.set_lookat(context_center if any(active_overlays.values()) else view['lookat'])
-                control.set_front(view['front']); control.set_up(view['up']); control.set_zoom(0.6 if any(active_overlays.values()) else 0.72)
-                return False
-            reset(visualizer)
-            visualizer.register_key_callback(ord('R'), reset)
+            view = camera_view(points, [p['world_to_camera'] for p in poses])
             context_status = "camera_aligned_all_exported_points"
             # Frustums/axes are optional context overlays, never scene landmarks.
-            span = float(np.linalg.norm(np.ptp(np.asarray(points), axis=0)))
+            span = float(np.linalg.norm(np.ptp(points, axis=0)))
             axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=max(span * .08, 1e-6))
             intrinsics = load_intrinsics(args.ply)
             vertices, edges = [], []
@@ -182,8 +233,9 @@ def main(argv=None):
                 edges.extend((e + len(vertices)).tolist()); vertices.extend(v.tolist())
             frustums = o3d.geometry.LineSet(o3d.utility.Vector3dVector(vertices), o3d.utility.Vector2iVector(edges))
             frustums.paint_uniform_color([.25, .25, .25])
-            bounds = np.vstack([np.asarray(points), vertices, [[0, 0, 0]]])
-            context_center = (bounds.min(axis=0) + bounds.max(axis=0)) / 2
+            bounds = np.vstack([points, vertices, [[0, 0, 0]]])
+            context_bounds = (bounds.min(axis=0), bounds.max(axis=0))
+            context_center = (context_bounds[0] + context_bounds[1]) / 2
             cameras = OverlayToggle(frustums, active_overlays, reset, open_status)
             axes_toggle = OverlayToggle(axes, active_overlays, reset, open_status)
             visualizer.register_key_callback(ord('C'), cameras.toggle)
@@ -192,7 +244,12 @@ def main(argv=None):
                 control = CameraControl(args.control_file, cameras)
                 visualizer.register_animation_callback(control.poll)
         except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError):
-            pass  # Standalone colored PLY files remain viewable without camera context.
+            pass
+        reset(visualizer)
+        for key in ("R", "F"):
+            visualizer.register_key_callback(ord(key), reset)
+        for key, dx, dy in (("J", -45, 0), ("L", 45, 0), ("K", 0, 45), ("I", 0, -45)):
+            visualizer.register_key_callback(ord(key), lambda vis, x=dx, y=dy: pan(vis, x, y))
         visualizer.poll_events()
         visualizer.update_renderer()
         open_status()

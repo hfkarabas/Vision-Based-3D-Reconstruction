@@ -8,7 +8,7 @@ from PIL import Image
 import pytest
 
 from vision3d.demo import support
-from vision3d.demo.viewer import load_cloud
+from vision3d.demo.viewer import fit_zoom, load_cloud, reset_view, standalone_view
 
 
 def images(folder, count=2):
@@ -318,3 +318,50 @@ def test_surface_workflow_preserves_completed_mesh_when_texturing_fails(tmp_path
     assert calls == ["surface-asset", "texture-asset"]
     assert events[0][0] == "error" and "dense mesh is available" in events[0][1]
     assert (dense / "mesh.ply").read_bytes() == b"existing"
+
+
+@pytest.mark.parametrize("missing", [None, "atlas.jpg"])
+def test_surface_workflow_validates_both_photographic_formats(tmp_path, monkeypatch, missing):
+    events = []
+
+    def child(command, log, stage, emit, stop):
+        if command[4] == "surface-asset":
+            assert "--geometry-weighted-winding" in command
+        else:
+            assert "--obj" in command
+            output = Path(command[command.index("--output") + 1])
+            output.mkdir()
+            for name in ("textured.glb", "textured.obj", "textured.mtl", "atlas.jpg"):
+                if name != missing:
+                    (output / name).write_bytes(b"saved")
+        return 0
+
+    monkeypatch.setattr(support, "run_child", child)
+    support.run_surface_workflow(tmp_path / "dense", tmp_path, 600000,
+                                 lambda *event: events.append(event), threading.Event())
+    assert events[0][0] == ("error" if missing else "texture")
+
+
+def test_standalone_model_fit_resets_to_finite_orthogonal_view():
+    from types import SimpleNamespace
+
+    points = np.array([[3., 7., 9.], [5., 8., 10.], [3., 7., 8.]])
+    expected = np.array([4., 7.5, 9.])
+    view = standalone_view(points, True)
+    assert np.allclose(view["lookat"], expected)
+    assert np.isclose(view["front"] @ view["up"], 0)
+    assert np.isclose(np.linalg.norm(view["up"]), 1)
+    calls = []
+    control = SimpleNamespace(**{f"set_{name}": lambda value, key=name: calls.append((key, value))
+                                 for name in ("lookat", "front", "up", "zoom")})
+    control.convert_to_pinhole_camera_parameters = lambda: SimpleNamespace(
+        intrinsic=SimpleNamespace(width=1100, height=760))
+    control.get_field_of_view = lambda: 60
+    renderer = SimpleNamespace(reset_view_point=lambda value: calls.append(("fit", value)),
+                               get_view_control=lambda: control)
+    bounds = (points.min(axis=0), points.max(axis=0))
+    assert reset_view(renderer, view, bounds) is False
+    assert calls[0] == ("fit", True)
+    assert calls[-1] == ("zoom", fit_zoom(bounds, view, 1100 / 760, 60))
+    assert np.array_equal(calls[1][1], expected)
+    assert fit_zoom(bounds, view, .4, 60) > calls[-1][1]

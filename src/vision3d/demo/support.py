@@ -214,8 +214,9 @@ def reported_stage(log, fallback):
 def run_surface_workflow(dense, run, triangles, emit, stop):
     surface, texture = run / "surface-asset", run / "texture-asset"
     stages = [("surface-asset", ["--dense-dir", str(dense), "--output", str(surface),
-                                 "--target-faces", str(max(450000, (triangles + 2) // 3))]),
-              ("texture-asset", ["--surface-dir", str(surface), "--output", str(texture)])]
+                                 "--target-faces", str(max(450000, (triangles + 2) // 3)),
+                                 "--geometry-weighted-winding"]),
+              ("texture-asset", ["--surface-dir", str(surface), "--output", str(texture), "--obj"])]
     for name, arguments in stages:
         command = [sys.executable, "-u", "-m", "vision3d.cli", name, *arguments]
         log = run / f"{name}.log"
@@ -227,7 +228,12 @@ def run_surface_workflow(dense, run, triangles, emit, stop):
             tail = log.read_text(encoding="utf-8", errors="replace")[-1600:]
             emit("error", f"{name} failed. The dense mesh is available.\n{tail}")
             return
-    emit("texture", str(texture / "textured.glb"))
+    artifacts = [texture / name for name in ("textured.glb", "textured.obj", "textured.mtl", "atlas.jpg")]
+    missing = [path.name for path in artifacts if not path.is_file() or not path.stat().st_size]
+    if missing:
+        emit("error", f"Photographic export is incomplete ({', '.join(missing)}). The dense mesh is available.")
+        return
+    emit("texture", str(artifacts[0]))
 
 
 def run_job(folder, camera, base, emit, stop, max_dimension=1600, profile=None, mesh=False, glb=False,
