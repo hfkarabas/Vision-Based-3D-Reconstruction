@@ -38,8 +38,11 @@ def evaluate(surface_dir, output, baseline_surface=None):
     sparse = Path(surface_metrics["sparse_dir"])
     dense_metrics = read(dense / "metrics.json")
     def used_views(metrics):
-        return {entry[name] for entry in metrics["pair_attempts"] if "depth_pixels" in entry
-                for name in ("reference", "source")}
+        primary = {entry[name] for entry in metrics["pair_attempts"] if "depth_pixels" in entry
+                   for name in ("reference", "source")}
+        recovery = metrics.get("depth_recovery") or {}
+        return primary | {entry[name] for entry in recovery.get("attempts", []) if entry["rejection"] is None
+                          for name in ("reference", "source")}
 
     used = used_views(dense_metrics)
     input_mesh = dense
