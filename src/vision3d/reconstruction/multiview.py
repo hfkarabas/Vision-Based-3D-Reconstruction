@@ -233,11 +233,19 @@ def checked_samples(maps, tolerance):
     return accepted
 
 
-def voxel_fuse(points, colors, size):
+def voxel_fuse(points, colors, size, *, origin=None):
     """Reduce duplicate samples in world voxels and return sample-to-vertex IDs."""
     if not np.isfinite(size) or size <= 0:
         raise ValueError("Invalid fusion voxel size")
-    cells = np.floor((points - points.min(axis=0)) / size).astype(np.int64)
+    anchor = points.min(axis=0) if origin is None else np.asarray(origin, dtype=float)
+    if anchor.shape != (3,) or not np.isfinite(anchor).all():
+        raise ValueError("Invalid fusion voxel origin")
+    scaled = (points - anchor) / size
+    if scaled.min() < -(2. ** 63) or not scaled.max() < 2. ** 63:
+        raise ValueError("Fusion voxel indices exceed the supported integer range")
+    np.floor(scaled, out=scaled)
+    cells = scaled.astype(np.int64)
+    del scaled
     _, inverse, count = np.unique(cells, axis=0, return_inverse=True, return_counts=True)
     fused = [np.column_stack([np.bincount(inverse, weights=column) / count for column in a.T])
              for a in (points, colors)]
@@ -287,7 +295,7 @@ def rasterize_polygon(vertices, size):
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
                           glb=False, stage=lambda name: None, object_masks=None, obj=False, mesh_common_witnesses=False,
                           depth_diagnostics=False, min_effective_disparity=None, prefer_conditioned_pairs=False,
-                          fusion_voxel_size=None):
+                          fusion_voxel_size=None, fusion_voxel_origin=None):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -315,6 +323,9 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
         raise ValueError("Conditioned pair selection requires a minimum effective disparity")
     if fusion_voxel_size is not None and (not np.isfinite(fusion_voxel_size) or fusion_voxel_size <= 0):
         raise ValueError("Fusion voxel size must be positive and finite")
+    if fusion_voxel_origin is not None and (fusion_voxel_size is None or
+            np.shape(fusion_voxel_origin) != (3,) or not np.isfinite(fusion_voxel_origin).all()):
+        raise ValueError("Fusion voxel origin requires a fixed voxel size and three finite coordinates")
 
     def read(name):
         return json.loads((sparse_dir / name).read_text(encoding="utf-8"))
@@ -451,7 +462,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     if voxel is None:
         voxel = float(np.median([np.median(d.depth[d.depth > 0]) / np.linalg.norm(d.intrinsic[0, :2])
                                 for d, _, _ in accepted]))
-    xyz, colors, inverse = voxel_fuse(points, colors, voxel)
+    origin = points.min(axis=0) if fusion_voxel_origin is None else np.asarray(fusion_voxel_origin, dtype=float)
+    xyz, colors, inverse = voxel_fuse(points, colors, voxel, origin=origin)
     fusion_seconds = perf_counter() - fusion_start
     surface, mesh_info = None, None
     face_evidence = []
@@ -558,6 +570,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                "units": "arbitrary monocular scale",
                "bounds": {"min": xyz.min(axis=0).tolist(), "max": xyz.max(axis=0).tolist()},
                "voxel_size": voxel, "pair_attempts": attempts, "mesh_requested": mesh,
+               "voxel_origin": origin.tolist(),
                "approximate_intrinsics": any(original[i].approximate for d in maps for i in (d.reference, d.source)),
                "mesh": mesh_info,
                "stage_seconds": {"depth": depth_seconds, "fusion": fusion_seconds, "mesh": mesh_seconds,
