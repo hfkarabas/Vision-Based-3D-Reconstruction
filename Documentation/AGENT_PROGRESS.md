@@ -179,3 +179,16 @@ Grid provenance traces 10,547/10,555 Rural and 14,700/14,739 Urban sampled raw i
 - **IN PROGRESS.** The current recovery accepts new evidence for estimated primary pixels only. It cannot replace a missing primary depth. The main geometric limitation remains crossing layers made by different image grids. The next experiment should select a geometrically compatible local depth sheet before tessellating overlaps, reusing exact source provenance, frozen spatial probes, DSM and common reserved views. Keep recovery opt-in and preserve the selected previous Urban asset.
 
 - `878e9bd` commits the validated normal CLI and desktop integration, the quality verifier and launch documentation. Verified release assets, benchmark table and prior Urban selection are recorded in `mission-iii-c/reports/mission-results.json` and `mission-iii-c/reports/final_report.md`. No existing artifacts were overwritten and no COLMAP baseline was rerun.
+
+## MISSION III-D — FINAL GEOMETRIC RECOVERY AND RELEASE
+
+**IN PROGRESS.** Starting at `dc4f83a`. Existing changes to academic deliverables and capture files are preserved. Experiments use `outputs/airzoo-benchmark/mission-iii-d/`. Mission III-C reports, saved sparse poses, depth rasters and validated assets are the controls. No previous benchmark will be overwritten.
+
+First compare surface generation on frozen Rural and Urban probes. Then advance coverage, desktop usability and final release validation independently if the mesh experiment fails. The current `uav-recovery` profile remains opt-in.
+
+### Surface and coverage experiments
+
+- Ball pivoting removed detected crossings on all 16 frozen Rural and Urban patches, with 28–68% triangle-area retention and more components in every patch. Rejected for production. The patch experiment and a crossing versus indexed shared-edge regression are retained.
+- The optional dense-only `--recover-empty-depth` experiment compares alternate estimates at genuinely empty primary pixels. It requires two camera-disjoint conditioned round trips. Rural-48 gained 307 accepted pixels, 281 fused points and 27 half-meter cells with unchanged common-footprint DSM P95. Rural-40, Urban-40 and Rural-80 recovered no empty pixels. Existing mesh profiles remain unchanged. Saved commands and results are under `mission-iii-d/*-empty-depth*` and `rural48-hole-dsm-v2/`.
+- The existing Urban quality-PnP hypothesis yielded the same 35/40 cameras, 6,066 landmarks and 0.731/0.948 px median/RMS reprojection error. Retained the prior selection and thresholds. `urban-quality-pnp-command.json` reproduces the ablation without repeating COLMAP.
+- Focused geometry checks passed 28 tests and the product-targeted suite passed 60. No previous assets were overwritten.

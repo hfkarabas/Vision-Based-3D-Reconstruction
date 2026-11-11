@@ -12,6 +12,17 @@ def plane(z, inconsistent=False):
     return o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(xyz), o3d.utility.Vector3iVector(faces))
 
 
+def test_intersection_probe_distinguishes_crossings_from_shared_edges_and_depth_separation():
+    mesh = plane(0)
+    assert not len(mesh.get_self_intersecting_triangles())
+    upright = o3d.geometry.TriangleMesh(
+        o3d.utility.Vector3dVector([[.2, .3, -1.], [.8, .3, -1.], [.3, .3, 1.]]),
+        o3d.utility.Vector3iVector([[0, 1, 2]]))
+    crossing = mesh + upright
+    assert (0, 2) in {tuple(sorted(pair)) for pair in crossing.get_self_intersecting_triangles()}
+    assert not len((mesh + upright.translate([0., 0., 2.])).get_self_intersecting_triangles())
+
+
 def test_winding_repair_resolves_shared_edge_without_discarding_valid_faces():
     mesh = plane(0, inconsistent=True)
     assert topology(mesh)[1]["winding_conflicts"] == 1

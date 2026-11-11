@@ -297,7 +297,8 @@ def rasterize_polygon(vertices, size):
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
                           glb=False, stage=lambda name: None, object_masks=None, obj=False, mesh_common_witnesses=False,
                           depth_diagnostics=False, min_effective_disparity=None, prefer_conditioned_pairs=False,
-                          fusion_voxel_size=None, fusion_voxel_origin=None, recovery_pairs=None):
+                          fusion_voxel_size=None, fusion_voxel_origin=None, recovery_pairs=None,
+                          recover_empty_depth=False):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -328,6 +329,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     if (not isinstance(recovery_pairs, int) or not 0 <= recovery_pairs <= 32 or
             (recovery_pairs and (min_effective_disparity is None or mesh_common_witnesses))):
         raise ValueError("Stereo recovery requires conditioning, a budget of 0–32 pairs and no common-witness mesh gate")
+    if recover_empty_depth and (mesh or not recovery_pairs):
+        raise ValueError("Experimental empty-depth recovery needs a nonzero recovery budget and dense-only output")
     if fusion_voxel_size is not None and (not np.isfinite(fusion_voxel_size) or fusion_voxel_size <= 0):
         raise ValueError("Fusion voxel size must be positive and finite")
     if fusion_voxel_origin is not None and (fusion_voxel_size is None or
@@ -455,8 +458,29 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                                               keep_witnesses=mesh_common_witnesses or depth_diagnostics or bool(recovery_pairs),
                                               min_effective_disparity=min_effective_disparity)
     recovery, recovery_provenance = None, {}
+    hole_observations, hole_points, hole_colors = {}, [], []
     if recovery_pairs:
         from .depth_recovery import recover_depth
+        from .depth_holes import supported_holes
+
+        centers = {i: p.center for i, p in poses.items()}
+        primary_by_reference = {d.reference: d for d in maps}
+
+        def observe_alternate(alternate):
+            reference = alternate.reference
+            if reference in hole_observations:
+                return
+            primary = primary_by_reference[reference]
+            selected = supported_holes(primary, alternate, maps, centers, min_effective_disparity,
+                                       settings.relative_depth, settings.max_return_px)
+            if len(selected):
+                rows, y, x, first, second = selected.T
+                edges = np.array([(d.reference, d.source) for d in maps])
+                hole_points.append(alternate.xyz[rows])
+                hole_colors.append(alternate.colors[rows])
+                hole_observations[reference] = np.column_stack((
+                    alternate.pixels[rows], y, x, edges[first], edges[second],
+                    np.full(len(rows), alternate.source), np.full(len(rows), primary.source)))
 
         def build_alternate(reference, source, xyz):
             a, b = cameras[reference], cameras[source]
@@ -478,8 +502,9 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
 
         recovery_start = perf_counter()
         accepted, recovery, recovery_provenance = recover_depth(
-            maps, accepted, {i: p.center for i, p in poses.items()}, neighbors, build_alternate, recovery_pairs,
-            settings.relative_depth, settings.max_return_px, min_effective_disparity, settings.recentered_witnesses, stage)
+            maps, accepted, centers, neighbors, build_alternate, recovery_pairs, settings.relative_depth,
+            settings.max_return_px, min_effective_disparity, settings.recentered_witnesses, stage,
+            observe_alternate if recover_empty_depth else None)
         recovery["runtime_seconds"] = perf_counter() - recovery_start
     sample_count = sum(int(mask.sum()) for _, mask, _ in accepted)
     if len(accepted) < 2 or sample_count < 100:
@@ -490,8 +515,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                                              "min_effective_disparity_px": min_effective_disparity,
                                              "prefer_conditioned_pairs": prefer_conditioned_pairs})
         raise ValueError(reason)
-    points = np.concatenate([depth.xyz[mask] for depth, mask, _ in accepted])
-    colors = np.concatenate([rgb for _, _, rgb in accepted])
+    points = np.concatenate([depth.xyz[mask] for depth, mask, _ in accepted] + hole_points)
+    colors = np.concatenate([rgb for _, _, rgb in accepted] + hole_colors)
     voxel = fusion_voxel_size
     if voxel is None:
         voxel = float(np.median([np.median(d.depth[d.depth > 0]) / np.linalg.norm(d.intrinsic[0, :2])
@@ -553,6 +578,14 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     export_start = perf_counter()
     output.mkdir(parents=True, exist_ok=False)
     export_cloud(output / "dense.ply", xyz, colors)
+    if hole_observations:
+        offset = sample_count
+        provenance = {}
+        for reference, observations in hole_observations.items():
+            end = offset + len(observations)
+            provenance[f"reference_{reference}"] = np.column_stack((observations, inverse[offset:end]))
+            offset = end
+        np.savez_compressed(output / "empty-depth-provenance.npz", **provenance)
     if depth_diagnostics:
         from .depth_diagnostics import save_depth_diagnostics
         save_depth_diagnostics(output, maps, accepted, inverse, plans, poses, recovery=recovery_provenance)
@@ -608,7 +641,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                "prefer_conditioned_pairs": prefer_conditioned_pairs,
                "mesh_common_witnesses": face_evidence if mesh_common_witnesses else None,
                "eligible_references": sorted(neighbors), "planned_references": selected, "depth_support": support,
-               "raw_depth_samples": sum(len(d.xyz) for d in maps), "checked_samples": sample_count,
+               "raw_depth_samples": sum(len(d.xyz) for d in maps),
+               "checked_samples": sample_count + sum(map(len, hole_points)),
                "depth_canvas_pixels": used_pixels,
                "coordinate_frame": "input SfM world, right/down/forward of the anchor camera",
                "units": "arbitrary monocular scale",
@@ -616,6 +650,12 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                "voxel_size": voxel, "pair_attempts": attempts, "mesh_requested": mesh,
                "voxel_origin": origin.tolist(),
                "depth_recovery": recovery,
+               "empty_depth_recovery": {"recovered_pixels": sum(map(len, hole_points)),
+                                        "by_reference": {ref: len(rows) for ref, rows in hole_observations.items()},
+                                        "columns": ["alternate_y", "alternate_x", "primary_y", "primary_x",
+                                                    "witness1_reference", "witness1_source", "witness2_reference",
+                                                    "witness2_source", "alternate_source", "primary_source",
+                                                    "fused_vertex"]} if recover_empty_depth else None,
                "approximate_intrinsics": any(original[i].approximate for d in maps for i in (d.reference, d.source)),
                "mesh": mesh_info,
                "stage_seconds": {"depth": depth_seconds, "fusion": fusion_seconds, "mesh": mesh_seconds,
