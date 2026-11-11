@@ -34,3 +34,27 @@ $s='outputs/airzoo-benchmark/major-sfm-improvement/rural/preinit-bridges/reconst
 ```
 
 Use `--profile uav` for the original behavior. Add `--min-effective-disparity 28` to that profile to apply only the pixel-level conditioning gate. Diagnostics are optional and retain bounded sample provenance and full rectified depth rasters. The desktop profile uses automatic voxel sizing unless the CLI comparison explicitly fixes it.
+
+## Coverage and surface checks
+
+On sampled half-meter cells shared by both Rural outputs, the P95 of cell-median absolute DSM residuals changes from 11.95 m to 11.90 m. Most of the larger whole-cloud improvement comes from removing unsupported geometry. The independent 48-image Rural run retains the same 31 registered cameras and uses the same voxel size, but DSM P95 changes from 13.32 m to 13.35 m. The conditioning gain does not generalize to every input.
+
+Same-view Blender 5.3 renders show the detached Rural strip removed. Rural optimized mesh components drop from 2,914 to 2,647, while Urban rises from 3,364 to 3,525. All eight bounded intersection probes per corrected mesh still find intersections. On Urban, first-hit agreement with common reserved stereo improves on three of four tested pairs. Rural has no viable reserved pair under the common-unused-camera rule.
+
+The first corrected Urban GLB and OBJ imported with seven zero corner normals at the same folded vertex fan. Export now splits shading at shared edges with opposing face normals while preserving triangle positions. Both final scenes passed Blender's GLB and OBJ import, atlas, UV, material, face and normal checks. All eight repeat renders were pixel-identical. Photographic area was 36.13% Rural and 22.77% Urban, down from 36.55% and 23.65%. Blender compatibility does not establish Unity compatibility.
+
+## Independent and downstream reproduction
+
+`scripts/audit_airzoo_rectification.py`, `scripts/trace_airzoo_region.py` and `scripts/replay_airzoo_stations.py` use the original sparse runs and project-local copies of their metadata. `scripts/compare_airzoo_dsm.py` uses optional pyproj for alignment to the provided DSM. `scripts/benchmark_airzoo_colmap.py` uses optional PyCOLMAP 4.2.1. It preserves the original camera poses when exporting our sparse model and accounts for the half-pixel principal-point convention in COLMAP. The independent SfM comparison uses the same decoded, resized primary photographs and fixed pinhole values. [COLMAP camera conventions](https://colmap.github.io/faq.html#using-calibration-from-opencv-kalibr-or-other-tools)
+
+```powershell
+.venv/Scripts/python.exe -B scripts/benchmark_airzoo_colmap.py --sparse $s --threads 6 --output "$p/rural-colmap-replay"
+.venv/Scripts/python.exe -B scripts/benchmark_airzoo_colmap.py --sparse $s --export-project-model --output "$p/rural-colmap-model-replay"
+.venv/Scripts/python.exe -B scripts/run_airzoo_colmap_dense.py --colmap "$p/colmap-cuda/bin/colmap.exe" --model "$p/rural-colmap-model-replay" --images "$p/rural-colmap-replay/images" --output "$p/rural-cross-backend-replay"
+.venv/Scripts/python.exe -B -m vision3d.cli surface-asset --dense-dir "$p/rural-conditioned-replay" --geometry-weighted-winding --target-faces 450000 --output "$p/rural-surface-replay"
+.venv/Scripts/python.exe -B -m vision3d.cli texture-asset --surface-dir "$p/rural-surface-replay" --holdout-stride 7 --refine-visible-faces 40000 --obj --output "$p/rural-texture-replay"
+```
+
+Use 900,000 target faces for the comparable Urban run. CUDA COLMAP is a benchmark dependency only. The project dense path remains CPU-based.
+
+The pixel-aligned CPU COLMAP models register 29 Rural and 40 Urban cameras. Their median common-camera relative rotation differences from the project models are 0.68° and 1.38°. The nearly collinear Rural camera centers make a center-only rotation alignment unstable. COLMAP PatchMatch with the original project poses finds zero points in the localized Rural strip probe. It retains 65,692 half-meter XY cells in Rural and 59,352 in Urban, versus 94,887 and 126,128 for conditioned project MVS. This independent result supports the depth-stage diagnosis while showing the effect of different fusion coverage.

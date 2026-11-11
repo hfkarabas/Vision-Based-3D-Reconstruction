@@ -32,13 +32,23 @@ def observations(view, dimension=750):
     return camera.resized(*size), cv2.resize(image, size, interpolation=cv2.INTER_AREA)
 
 
-def evaluate(surface_dir, output):
+def evaluate(surface_dir, output, baseline_surface=None):
     surface_metrics = read(surface_dir / "metrics.json")
     dense = Path(surface_metrics["dense_dir"])
     sparse = Path(surface_metrics["sparse_dir"])
     dense_metrics = read(dense / "metrics.json")
-    used = {entry[name] for entry in dense_metrics["pair_attempts"] if "depth_pixels" in entry
-            for name in ("reference", "source")}
+    def used_views(metrics):
+        return {entry[name] for entry in metrics["pair_attempts"] if "depth_pixels" in entry
+                for name in ("reference", "source")}
+
+    used = used_views(dense_metrics)
+    input_mesh = dense
+    if baseline_surface is not None:
+        baseline_metrics = read(baseline_surface / "metrics.json")
+        if Path(baseline_metrics["sparse_dir"]).resolve() != sparse.resolve():
+            raise ValueError("Before/after stereo comparison requires the same sparse poses")
+        used |= used_views(read(Path(baseline_metrics["dense_dir"]) / "metrics.json"))
+        input_mesh = baseline_surface
     views = {view.id: view for view in surface_views(sparse) if view.id not in used}
     poses = {i: view.pose for i, view in views.items()}
     landmarks = read(sparse / "landmarks.json")
@@ -49,7 +59,7 @@ def evaluate(surface_dir, output):
     report = {"dense_camera_ids": sorted(used), "reserved_camera_ids": sorted(views), "pairs": [], "rejected": [],
               "method": "first mesh hit versus reciprocal stereo depth; reserved cameras still contributed to SfM"}
     if planned:
-        scenes = [ray_scene(o3d.io.read_triangle_mesh(str(path / "mesh.ply"))) for path in (dense, surface_dir)]
+        scenes = [ray_scene(o3d.io.read_triangle_mesh(str(path / "mesh.ply"))) for path in (input_mesh, surface_dir)]
         cached = {}
         cv2.setNumThreads(1)
         for _, i, j, sparse_xyz in planned[:16]:
@@ -87,6 +97,8 @@ def evaluate(surface_dir, output):
             if len(report["pairs"]) == 4:
                 break
     report["status"] = "measured" if report["pairs"] else "no_viable_reserved_pair"
+    report["input_mesh"] = str(input_mesh)
+    report["output_mesh"] = str(surface_dir)
     with output.open("x", encoding="utf-8") as stream:
         json.dump(report, stream, indent=2)
         stream.write("\n")
@@ -95,6 +107,7 @@ def evaluate(surface_dir, output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--surface-dir", required=True, type=Path)
+    parser.add_argument("--baseline-surface", type=Path, help="Compare both meshes using cameras unused by either dense run")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    evaluate(args.surface_dir, args.output)
+    evaluate(args.surface_dir, args.output, args.baseline_surface)

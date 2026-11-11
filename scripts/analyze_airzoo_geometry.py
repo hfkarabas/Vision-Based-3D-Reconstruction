@@ -69,6 +69,7 @@ def sparse_report(sparse, views, stations, inputs, attitudes, deviation):
     landmarks = read(sparse / "landmarks.json")
     counts = Counter()
     residuals = defaultdict(list)
+    station_residuals = defaultdict(list)
     tracks = []
     negative = 0
     for landmark in landmarks:
@@ -79,7 +80,9 @@ def sparse_report(sparse, views, stations, inputs, attitudes, deviation):
             pose = views[i].pose
             negative += int((pose.rotation @ landmark["xyz"] + pose.translation)[2] <= 0)
             if str(i) in landmark.get("reprojection_errors_px", {}):
-                residuals[i].append(landmark["reprojection_errors_px"][str(i)])
+                error = landmark["reprojection_errors_px"][str(i)]
+                residuals[i].append(error)
+                station_residuals[stations[i]].append(error)
     edges = []
     with np.load(sparse / "verified_pairs.npz") as pairs:
         for name in pairs.files:
@@ -92,11 +95,15 @@ def sparse_report(sparse, views, stations, inputs, attitudes, deviation):
         graph[ix[a], ix[b]] = graph[ix[b], ix[a]] = True
     _, labels = connected_components(graph, directed=False)
     camera = {i: {"name": str(v.source.name), "station": stations[i], "intrinsics": v.camera.to_dict(),
-                  "attitude": attitudes[i], "residual_px_p01_p05_p50_p95_p99": percentiles(residuals[i])}
+                  "attitude": attitudes[i], "center_world": v.pose.center.tolist(),
+                  "forward_world": v.pose.rotation[2].tolist(),
+                  "residual_px_p01_p05_p50_p95_p99": percentiles(residuals[i])}
               for i, v in views.items()}
     report = {"input_images": len(inputs), "registered_images": len(views), "cameras": camera,
               "registered_by_station": dict(Counter(stations[i] for i in views)), "track_length_percentiles": percentiles(tracks),
               "landmarks_by_number_of_stations": dict(counts), "cheirality_violations": negative,
+              "station_reprojection_px_p01_p05_p50_p95_p99": {i: percentiles(rows)
+                                                             for i, rows in station_residuals.items()},
               "input_metadata": [{k: item[k] for k in ("image_id", "source_size", "exif_orientation", "exif_focal", "resize")}
                                  for item in inputs], "gimbal_up_residual_deg": percentiles(deviation),
               "triangulation_angles": percentiles([p["max_triangulation_angle_degrees"] for p in landmarks

@@ -69,7 +69,17 @@ def q(x):
     return np.percentile(x, [5, 50, 90, 95, 99]).tolist() if len(x) else None
 
 
-def evaluation(sparse, dsm, variants, output):
+def cell_medians(xy, values):
+    """Summarize residuals once per sampled half-meter cell to limit density bias."""
+    cells, inverse, counts = np.unique(np.floor(xy / .5).astype(np.int64), axis=0,
+                                      return_inverse=True, return_counts=True)
+    order = np.lexsort((values, inverse))
+    middle = np.cumsum(counts) - 1 - (counts - 1) // 2
+    medians = (values[order[middle]] + values[order[middle - (counts % 2 == 0)]]) / 2
+    return dict(zip(map(tuple, cells), medians, strict=True))
+
+
+def evaluation(sparse, dsm, variants, output, fixed_offset=None):
     from pyproj import Transformer
 
     _, views, stations, geodetic, _, basis, tilt = station_metadata(sparse)
@@ -101,6 +111,8 @@ def evaluation(sparse, dsm, variants, output):
         xy_complex = coefficient * (local[:, 0] + 1j * local[:, 1]) + offset
         return np.column_stack((xy_complex.real, xy_complex.imag, scale * local[:, 2] + z_offset))
 
+    if fixed_offset is not None and not np.isfinite(fixed_offset):
+        raise ValueError("The DSM offset must be finite")
     result = {"horizontal_crs": crs, "srs_origin": xml.findtext("SRSOrigin"), "pixel_transform": raster.affine.tolist(),
               "raster_shape": [raster.height, raster.width], "nodata_tag": raster.nodata,
               "meters_per_sfm_unit": scale, "alignment_up_tilt_deg": q(tilt), "ppk_fit_horizontal_m": q(residual),
@@ -110,7 +122,8 @@ def evaluation(sparse, dsm, variants, output):
     output.mkdir(parents=True, exist_ok=False)
     clouds = []
     cell_counts = {}
-    baseline = None
+    residuals_by_cell = {}
+    baseline = fixed_offset
     for name, directory in variants:
         directory = Path(directory)
         points = np.asarray(o3d.io.read_point_cloud(str(directory / "dense.ply")).points)
@@ -127,6 +140,7 @@ def evaluation(sparse, dsm, variants, output):
         if baseline is None:
             baseline = float(np.median(delta))
         centered = delta - baseline
+        residuals_by_cell[name] = cell_medians(samples[mask, :2], abs(centered))
         xy_cells = np.unique(np.floor(samples[mask, :2] / .5), axis=0)
         result["variants"][name] = {"samples": len(samples), "valid_dsm_samples": int(mask.sum()),
              "occupied_half_meter_cells": len(cells), "sampled_half_meter_cells": len(xy_cells),
@@ -135,7 +149,11 @@ def evaluation(sparse, dsm, variants, output):
              "over_10m_from_centered_dsm_fraction": float((abs(centered) > 10).mean()),
              "below_dsm_by_10m_fraction": float((centered < -10).mean()),
              "above_dsm_by_10m_fraction": float((centered > 10).mean()), "views": []}
-        provenance = read(directory / "depth-observations/manifest.json")
+        provenance_path = directory / "depth-observations/manifest.json"
+        clouds.append((name, samples[mask], centered))
+        if not provenance_path.is_file():
+            continue
+        provenance = read(provenance_path)
         for record in provenance["pairs"]:
             with np.load(directory / "depth-observations" / record["file"]) as data:
                 row = {k: record[k] for k in ("reference", "source", "recentered")}
@@ -161,15 +179,22 @@ def evaluation(sparse, dsm, variants, output):
                                                                    if witness & (1 << bit)]})
                         row["signed_extremes"] = details
                 result["variants"][name]["views"].append(row)
-        clouds.append((name, samples[mask], centered))
     result["fixed_baseline_dsm_offset_m"] = baseline
+    result["offset_source"] = "supplied" if fixed_offset is not None else "median of the first valid variant"
     baseline_cells = cell_counts[next(iter(cell_counts))]
+    baseline_residuals = next(iter(residuals_by_cell.values()), {})
     for name, cells in cell_counts.items():
         overlap = baseline_cells & cells
         result["variants"][name].update(
             baseline_half_meter_cells_retained=len(overlap),
             new_half_meter_cells=len(cells - baseline_cells),
             baseline_half_meter_cell_retention=len(overlap) / len(baseline_cells))
+        if name in residuals_by_cell:
+            residuals = residuals_by_cell[name]
+            shared = sorted(baseline_residuals.keys() & residuals.keys())
+            result["variants"][name]["common_sampled_cell_residual_m"] = {
+                "cells": len(shared), "baseline": q([baseline_residuals[k] for k in shared]),
+                "variant": q([residuals[k] for k in shared])}
     if clouds:
         fig, panels = plt.subplots(1, len(clouds), figsize=(5 * len(clouds), 4), squeeze=False, layout="constrained")
         limits = [clouds[0][1][:, :2].min(axis=0), clouds[0][1][:, :2].max(axis=0)]
@@ -190,5 +215,6 @@ if __name__ == "__main__":
     parser.add_argument("--dsm", required=True, type=Path)
     parser.add_argument("--variant", nargs=2, action="append", required=True, metavar=("LABEL", "PATH"))
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--fixed-offset", type=float, help="Reuse a baseline vertical offset in meters")
     args = parser.parse_args()
-    evaluation(args.sparse, args.dsm, args.variant, args.output)
+    evaluation(args.sparse, args.dsm, args.variant, args.output, args.fixed_offset)

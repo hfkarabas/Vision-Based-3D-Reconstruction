@@ -6,11 +6,11 @@ from pathlib import Path
 
 import numpy as np
 import open3d as o3d
-
 from analyze_airzoo_geometry import original_pixels, read, station_metadata
+from matplotlib import pyplot as plt
 
 
-def trace(sparse, frame, variants, x_max, z_min):
+def trace(sparse, frame, variants, x_max, z_min, figure=None):
     _, views, stations, *_ = station_metadata(sparse)
     origin = np.array(frame["origin"])
     basis = np.array(frame["basis"])
@@ -20,16 +20,21 @@ def trace(sparse, frame, variants, x_max, z_min):
         return (xyz[:, 0] < x_max) & (xyz[:, 2] > z_min)
 
     runs = {}
+    plots = []
     for label, dense in variants:
         cloud = o3d.io.read_point_cloud(str(dense / "dense.ply"))
         root = dense / "depth-observations"
         provenance = read(root / "manifest.json")
         records = []
+        layers = []
         for row in provenance["pairs"]:
             i, j = row["reference"], row["source"]
             with np.load(root / row["file"]) as data:
                 raw = int(region(data["raw_xyz"]).sum())
                 accepted = np.flatnonzero(region(data["accepted_xyz"]))
+                if figure is not None:
+                    samples = (data["accepted_xyz"] - origin) @ basis
+                    layers.append(np.column_stack((samples[:, [0, 2]], np.bitwise_count(data["accepted_witness_bits"]))))
                 if not raw and not len(accepted):
                     continue
                 combinations = Counter()
@@ -50,6 +55,21 @@ def trace(sparse, frame, variants, x_max, z_min):
                                 "witness_combinations": [{"references": list(key), "samples": count}
                                                          for key, count in combinations.most_common()]})
         runs[label] = {"fused_vertices_in_region": int(region(np.asarray(cloud.points)).sum()), "views": records}
+        if figure is not None:
+            plots.append((label, np.concatenate(layers)))
+    if figure is not None:
+        fig, axes = plt.subplots(1, len(plots), squeeze=False, sharex=True, sharey=True,
+                                 figsize=(4 * len(plots), 3), layout="constrained")
+        for axis, (label, points) in zip(axes[0], plots, strict=True):
+            plot = axis.scatter(*points[:, :2].T, c=points[:, 2], s=1, vmin=1, vmax=4, cmap="viridis")
+            axis.axvline(x_max, color=".55", lw=.8)
+            axis.axhline(z_min, color=".55", lw=.8)
+            axis.set_title(label)
+            axis.set_xlabel("Gravity-aligned X (SfM units)")
+        axes[0, 0].set_ylabel("Elevation (SfM units)")
+        fig.colorbar(plot, ax=axes[0].tolist(), label="Corroborating depth references (4+)")
+        fig.savefig(figure, dpi=150)
+        plt.close(fig)
     return {"scope": "Post hoc spatial probe on a fixed shared frame. Per-view counts are bounded samples; fused counts are exact.",
             "x_upper_exclusive": x_max, "z_lower_exclusive": z_min, "runs": runs}
 
@@ -62,9 +82,10 @@ if __name__ == "__main__":
     parser.add_argument("--x-max", type=float, required=True)
     parser.add_argument("--z-min", type=float, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--figure", type=Path)
     args = parser.parse_args()
     data = trace(args.sparse, read(args.frame), [(label, Path(path)) for label, path in args.variant],
-                 args.x_max, args.z_min)
+                 args.x_max, args.z_min, args.figure)
     with args.output.open("x", encoding="utf-8") as stream:
         json.dump(data, stream, indent=2)
         stream.write("\n")
