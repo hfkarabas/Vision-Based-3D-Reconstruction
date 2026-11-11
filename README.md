@@ -242,6 +242,8 @@ For UAV sequences, **uav-conditioned** is an opt-in desktop **Multi-view** profi
 
 Use **uav-recovery** to try bounded alternate stereo witnesses with the same geometric gates. It is opt-in. The desktop accepts up to 80 photos in the UAV profiles and reads the primary photograph from DJI MPO containers stored as JPG.
 
+The opt-in **uav-coverage** profile retries stereo pairs that return very little reciprocal depth, within the existing per-view attempt budget. For matched renderer, depth and mesh comparisons and the external-depth review candidate, see [AirZoo visual recovery](docs/AIRZOO_VISUAL_RECOVERY.md).
+
 ```powershell
 .venv/Scripts/python.exe -m vision3d.cli reconstruct-asset --input datasets/uav-photos --profile uav-recovery --obj --output outputs/uav-demo
 ```

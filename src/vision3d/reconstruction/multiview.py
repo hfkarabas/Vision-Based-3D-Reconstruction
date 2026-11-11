@@ -36,6 +36,7 @@ class DenseProfile:
     min_effective_disparity: float | None = None
     prefer_conditioned_pairs: bool = False
     recovery_pairs: int = 0
+    retry_weak_canvas: bool = False
 
 
 PROFILES = {
@@ -48,6 +49,7 @@ PROFILES = {
 }
 PROFILES["uav-conditioned"] = replace(PROFILES["uav"], min_effective_disparity=28, prefer_conditioned_pairs=True)
 PROFILES["uav-recovery"] = replace(PROFILES["uav-conditioned"], recovery_pairs=16)
+PROFILES["uav-coverage"] = replace(PROFILES["uav-recovery"], retry_weak_canvas=True)
 
 
 @dataclass
@@ -410,6 +412,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
             attempts.append({"reference": reference, "reason": "total depth-map pixel budget reached"})
             continue
         depth_attempts = 0
+        best = None
         candidates = [(source, xyz, False) for _, source, xyz in neighbors[reference]]
         for source, xyz, recenter in candidates:
             if depth_attempts == settings.attempts:
@@ -439,14 +442,30 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                 attempts.append({"reference": reference, "source": source, "reason": str(exc), "recentered": recenter})
                 stage(f"Depth pair {reference}/{source} skipped: {exc}")
                 continue
+            attempt = {"reference": reference, "source": source, "depth_pixels": len(depth.xyz),
+                       "recentered": recenter, "median_effective_disparity_px":
+                       plan.median_effective_disparity if plan is not None else None}
+            attempts.append(attempt)
+            if settings.retry_weak_canvas:
+                fraction = len(depth.xyz) / (a.width * a.height)
+                attempt.update(reciprocal_canvas_fraction=fraction, selected=False)
+                if fraction < .05:
+                    attempt["decision"] = "weak reciprocal coverage"
+                    if best is None or len(depth.xyz) > len(best[0].xyz):
+                        best = depth, plan, attempt
+                    if settings.recenter_pairs and not recenter:
+                        candidates.append((source, xyz, True))
+                    continue
+            best = depth, plan, attempt
+            break
+        if best is not None:
+            depth, plan, attempt = best
             maps.append(depth)
+            used_pixels += a.width * a.height
             if depth_diagnostics:
                 plans[reference] = plan
-            used_pixels += a.width * a.height
-            attempts.append({"reference": reference, "source": source, "depth_pixels": len(depth.xyz),
-                             "recentered": recenter, "median_effective_disparity_px":
-                             plan.median_effective_disparity if plan is not None else None})
-            break
+            if settings.retry_weak_canvas:
+                attempt["selected"] = True
     depth_seconds = perf_counter() - depth_start
     stage("Checking third-view depth and fusing world voxels")
     fusion_start = perf_counter()

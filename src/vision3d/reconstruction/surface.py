@@ -2,6 +2,24 @@
 import numpy as np
 
 
+def footprint_edge_gate(points, faces, camera_center, focal, voxel, shared_support):
+    """Allow longer image-grid edges only on well-supported, non-grazing footprints."""
+    a, b, c = points[faces].transpose(1, 0, 2)
+    ab, ac = b - a, c - a
+    longest = np.sqrt(np.maximum.reduce([np.square(edge).sum(axis=1) for edge in (ab, ac, c - b)]))
+    base = longest <= 6 * voxel
+    candidates = np.flatnonzero(~base & (longest <= 12 * voxel) & shared_support)
+    aa, bb, cc = a[candidates], b[candidates], c[candidates]
+    ray = (aa + bb + cc) / 3 - camera_center
+    distance = np.linalg.norm(ray, axis=1)
+    normal = np.cross(bb - aa, cc - aa)
+    incidence = abs(np.sum(normal * ray, axis=1)) / np.maximum(np.linalg.norm(normal, axis=1) * distance, 1e-15)
+    # No holes are filled. Faces already come from adjacent pixels and meet
+    # the existing local depth-jump check. A grazing face remains inadmissible.
+    base[candidates] = (incidence >= .55) & (longest[candidates] <= 3 * distance / focal)
+    return base
+
+
 def build_surface(xyz, colors, triangles, target_faces=None, *, max_edge=None):
     import open3d as o3d
 
