@@ -240,6 +240,14 @@ For photographic UVs, select **Photo texture** when running a dense mesh in the 
 
 For UAV sequences, **uav-conditioned** is an opt-in desktop **Multi-view** profile and a `dense-sequence --profile uav-conditioned` option. It skips stereo candidates with weak median effective disparity and applies the same 28 px minimum to candidate and corroborating depth. The original **uav** profile is still available. Conditioning can leave gaps where the images provide no usable alternative. [AirZoo geometry experiments](docs/AIRZOO_GEOMETRIC_RECOVERY.md)
 
+Use **uav-recovery** to try bounded alternate stereo witnesses with the same geometric gates. It is opt-in. The desktop accepts up to 80 photos in the UAV profiles and reads the primary photograph from DJI MPO containers stored as JPG. Select **Colored mesh** and **Photo texture** to preview a textured GLB in the desktop. The CLI can also export OBJ with its MTL and atlas.
+
+```powershell
+.venv/Scripts/python.exe -m vision3d.cli reconstruct-asset --input datasets/uav-photos --profile uav-recovery --obj --output outputs/uav-demo
+```
+
+Use `--images` for an explicit subset, `--camera` for measured intrinsics or `--sparse-dir` to reuse a successful sparse run. The command writes `workflow.json`, a dense PLY, an optimized surface and textured assets under the new output directory. Geometry remains partial where the source views give insufficient evidence. [Mission benchmark and launch notes](docs/AIRZOO_MISSION_III_C.md)
+
 Start with **fast** for meshes. Higher profiles use more memory, and optional CLI `--target-faces` simplification can take substantially longer and may retain more faces than requested. See the [evaluation](docs/MULTIVIEW_EVALUATION.md) and [engineering report](docs/MULTIVIEW_COMPLETION_REPORT.md) for measurements and limitations.
 
 ### Difficult small photo sets

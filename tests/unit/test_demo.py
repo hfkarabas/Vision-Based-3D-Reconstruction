@@ -134,6 +134,20 @@ def test_stable_cli_configuration(tmp_path):
     assert command[command.index("--input") + 1] == str(folder.resolve())
 
 
+def test_desktop_accepts_primary_mpo_and_keeps_the_uav_pair_schedule_bounded(tmp_path):
+    folder = images(tmp_path / "images", 30)
+    main = Image.new("RGB", (40, 30))
+    main.save(folder / "drone.jpg", format="MPO", save_all=True, append_images=[Image.new("RGB", (24, 16))])
+    with pytest.raises(ValueError, match="2–30"):
+        support.validate_inputs(folder, "")
+    calibration = camera(tmp_path / "camera.json")
+    assert support.validate_inputs(folder, calibration, max_images=80)["usable"] == 31
+    command = support.reconstruction_command(folder, calibration, tmp_path / "out", uav=True, enhanced=True)
+    assert command[command.index("--max-images") + 1] == "80"
+    assert command[command.index("--map-recovery-pairs") + 1] == "30"
+    assert "--exhaustive" not in command
+
+
 def test_result_metadata(tmp_path):
     result = support.read_result(metrics(tmp_path))
     assert (result.registered, result.landmarks, result.seconds) == (6, 100, 2.5)

@@ -226,8 +226,32 @@ def main(argv=None):
     texture.add_argument("--refine-visible-faces", type=int, default=0,
                          help="Maximum partially visible faces to subdivide before photographic reassignment")
     texture.add_argument("--obj", action="store_true", help="Also export OBJ and its photographic MTL")
+    product = sub.add_parser("reconstruct-asset", help="Reconstruct, mesh, texture and export UAV photographs")
+    product_input = product.add_mutually_exclusive_group(required=True)
+    product_input.add_argument("--input", dest="input_path")
+    product_input.add_argument("--images", nargs="+", dest="input_path")
+    product_input.add_argument("--sparse-dir", help="Resume from a completed sparse sequence")
+    product.add_argument("--output", required=True)
+    product.add_argument("--camera", help="Use explicit calibration instead of automatic intrinsics")
+    product.add_argument("--profile", choices=("uav", "uav-conditioned", "uav-recovery"), default="uav")
+    product.add_argument("--max-images", type=int, default=40)
+    product.add_argument("--max-dimension", type=int, default=1600)
+    product.add_argument("--position-hints", help="Optional SfM station hints")
+    product.add_argument("--feature-cache")
+    product.add_argument("--pair-cache")
+    product.add_argument("--target-faces", type=int, default=450000)
+    product.add_argument("--atlas-size", type=int, default=4096)
+    product.add_argument("--obj", action="store_true")
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")
+    if selected == "reconstruct-asset":
+        from vision3d.reconstruction.asset_workflow import reconstruct_asset
+        try:
+            result = reconstruct_asset(**args, stage=lambda name: print("Stage: " + name, flush=True))
+        except (ValueError, OSError, KeyError, TypeError, RuntimeError, cv2.error) as exc:
+            parser.exit(2, f"error: {exc}\n")
+        print(json.dumps(result))
+        return
     if selected == "texture-asset":
         from vision3d.reconstruction.texture_asset import build_texture_asset
         try:
