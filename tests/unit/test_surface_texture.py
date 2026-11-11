@@ -8,7 +8,8 @@ from vision3d.demo.viewer import load_textured_meshes
 from vision3d.reconstruction.pair import source_hash
 from vision3d.reconstruction.state import Pose
 from vision3d.reconstruction.surface_texture import TextureAtlas, bake_texture
-from vision3d.reconstruction.surface_validation import SurfaceView
+from vision3d.reconstruction.surface_subdivision import subdivide_visible_candidates
+from vision3d.reconstruction.surface_validation import SurfaceView, topology
 from vision3d.reconstruction.textured_export import export_textured_glb, export_textured_obj, prepare_texture_mesh, textured_primitives
 
 
@@ -66,3 +67,14 @@ def test_export_splits_shading_at_an_almost_opposing_fold():
     corner_normals = attributes["NORMAL"][indices].reshape(2, 3, 3)
     assert len(attributes["POSITION"]) == 6
     assert corner_normals[0, 0] @ corner_normals[1, 1] < -.99
+
+
+def test_visibility_subdivision_keeps_neighbor_conforming_and_area_exact():
+    xyz = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]
+    mesh = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(xyz), o3d.utility.Vector3iVector([[0, 1, 2], [1, 3, 2]]))
+    mesh.paint_uniform_color([.1, .2, .3])
+    result, count = subdivide_visible_candidates(mesh, np.array([True, False]), 1)
+    _, audit = topology(result)
+    assert count == 1 and len(result.triangles) == 6
+    assert audit["components"] == 1 and audit["nonmanifold_edges"] == 0 and audit["winding_conflicts"] == 0
+    assert audit["area"] == pytest.approx(1.)

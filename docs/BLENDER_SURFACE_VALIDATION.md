@@ -15,3 +15,17 @@ The driver launches Blender in background with factory settings once per format 
 The inspector writes top and oblique CPU Cycles renders with transparent backgrounds. It connects each imported base-color source to an emission shader for the regression views so lighting cannot hide a material or UV defect. Cross-format silhouettes must have at least 0.995 intersection over union. Same-format replay requires 0.999 silhouette overlap, foreground mean absolute RGB difference of at most 0.25 intensity units, and at most 0.5% of shared foreground pixels changing by more than four units. The original fallback colors differ between GLB and OBJ, so cross-format color differences are recorded for diagnosis.
 
 Original assets lost five Rural and ten Urban duplicate-position faces in each format and produced 12 and 24 invalid Blender corner normals, respectively. The corrected weighted and visibility-refined exports passed strict Blender 5.3.0 import checks. These checks accept open boundaries. The per-asset reports and local overlap measurements still identify unresolved intersecting geometry.
+
+## Fixed-subset results
+
+| Metric | Rural previous → current | Urban previous → current |
+|---|---:|---:|
+| Edge-connected components measured in Blender after exact-position grouping | 3,699 → 2,914 | 6,123 → 3,363 |
+| Imported triangles | 434,640 → 627,303 | 848,136 → 1,067,951 |
+| Invalid corner normals per format | 12 → 0 | 24 → 0 |
+| Photographic area | 32.62% → 36.55% | 21.73% → 23.65% |
+| Textured GLB size | 22.95 → 43.05 MB | 37.06 → 69.90 MB |
+
+The two formats had identical top and oblique silhouettes per scene. All eight same-format repeat images matched pixel-for-pixel. The full suite passed 186 tests. Weighted winding reduced P99 input-to-output sample displacement to 0.000697 and 0.000844 SfM units using the existing bounds. The visibility-refined exports add triangles by partitioning the original planes. Their overlap pair counts depend on that tessellation. All eight compact neighborhoods in each scene still show overlaps. The camera-supported pruning experiment found one safely removable face in Rural and none in Urban, so pruning remains diagnostic.
+
+To reconstruct the measured assets, run `surface-asset` on each Mission II dense directory with `--geometry-weighted-winding` and the existing Rural 450,000 or Urban 900,000 face target. Then run `texture-asset` on each output with `--holdout-stride 7 --refine-visible-faces 40000 --obj`. The archived results and exact commands are under `outputs/airzoo-benchmark/major-surface-improvement/`.

@@ -16,6 +16,7 @@ class TextureAtlas:
     chart: np.ndarray
     uv: np.ndarray
     metrics: dict
+    partially_visible: np.ndarray | None = None
 
 
 def read_photo(view, dimension):
@@ -71,7 +72,8 @@ def sample_rgb(image, pixels):
     return image[rows[:, 1], rows[:, 0]].astype(np.float32)
 
 
-def bake_texture(mesh, views, atlas_size=4096, holdout_stride=0, stage=lambda message: None, front_faces_only=False):
+def bake_texture(mesh, views, atlas_size=4096, holdout_stride=0, stage=lambda message: None, front_faces_only=False,
+                 track_partial=False):
     if atlas_size not in (512, 1024, 2048, 4096, 8192):
         raise ValueError("Atlas size must be 512, 1024, 2048, 4096 or 8192")
     if holdout_stride != 0 and holdout_stride < 3:
@@ -92,6 +94,7 @@ def bake_texture(mesh, views, atlas_size=4096, holdout_stride=0, stage=lambda me
     labels = np.full(len(faces), -1, np.int32)
     alternate = labels.copy()
     best, second = np.zeros(len(faces)), np.zeros(len(faces))
+    center_visible = np.zeros(len(faces), dtype=bool) if track_partial else None
     views_and_images = []
     for idx, view in enumerate(active):
         stage(f"Checking texture visibility in photo {idx + 1}/{len(active)}")
@@ -105,6 +108,8 @@ def bake_texture(mesh, views, atlas_size=4096, holdout_stride=0, stage=lambda me
         corners = np.rint(pixels[rows]).astype(int)
         rows = rows[(validity[corners[:, :, 1], corners[:, :, 0]] > 0).all(axis=1)]
         rows = rows[visible_points(scene, centers[rows], view.pose.center)]
+        if center_visible is not None:
+            center_visible[rows] = True
         # Test interior points near each corner, avoiding numerically ambiguous mesh edges.
         for corner in range(3):
             probe = .86 * xyz[faces[rows, corner]] + .14 * centers[rows]
@@ -172,4 +177,4 @@ def bake_texture(mesh, views, atlas_size=4096, holdout_stride=0, stage=lambda me
                "seam_label_changes": reassigned, "holdout_photometry": holdout, "front_faces_only": front_faces_only,
                "textured_faces_observed_from_back": backside_faces,
                "uv_center_projection_error_px_p50_p95": np.percentile(uv_center_error[covered], [50, 95]).tolist()}
-    return TextureAtlas(atlas, chart, uv, metrics)
+    return TextureAtlas(atlas, chart, uv, metrics, center_visible & ~covered if track_partial else None)

@@ -211,6 +211,8 @@ def main(argv=None):
     texture.add_argument("--holdout-stride", type=int, default=0, help="Reserve every Nth photo for appearance validation")
     texture.add_argument("--units-per-world", type=float, default=1., help="Output units per SfM unit, supplied by the user")
     texture.add_argument("--front-faces-only", action="store_true", help="Exclude visible backfaces from the photographic material")
+    texture.add_argument("--refine-visible-faces", type=int, default=0,
+                         help="Maximum partially visible faces to subdivide before photographic reassignment")
     texture.add_argument("--obj", action="store_true", help="Also export OBJ and its photographic MTL")
     args = vars(parser.parse_args(argv))
     selected = args.pop("command")

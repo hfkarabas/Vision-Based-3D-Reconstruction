@@ -63,7 +63,7 @@ $env:OMP_NUM_THREADS='4'
 
 ## Mission III — validated surfaces and photographic UV assets
 
-**IN PROGRESS for surface integrity and Unity validation.** The optimized and UV-textured asset workflows passed real reconstruction, export and desktop worker validation. All new experiments are in `outputs/airzoo-benchmark/major-surface-improvement/`. The fixed Mission II inputs and unrelated deliverable edits were preserved. The initial suite passed 174 tests and the final suite passed 181.
+**IN PROGRESS for intersecting geometry.** Blender replaces the blocked Unity test for the active import and rendering milestone. The optimized and UV-textured workflows passed real reconstruction, export, desktop worker and Blender validation. All experiments are in `outputs/airzoo-benchmark/major-surface-improvement/`. The fixed Mission II inputs and unrelated deliverable edits were preserved. The latest full suite passed 186 tests.
 
 Previously validated engineering commits recovered at startup:
 
@@ -80,6 +80,7 @@ Mesh milestone validated on both fixed scenes. Open3D's orientation routine left
 - Tkinter controls and the real Rural desktop geometry-to-texture worker passed. Release suite passed **179 tests**. Seam welding rejected 1 Rural and 4 Urban candidates at half a dense voxel because the result failed the topology gate. The seam method remains an isolated experiment. Next validate the combined benchmark replay, capture topology probe results and finalize the requested reports.
 - `faceb5a` — real-photo UV atlas, validated GLB/OBJ/MTL export, desktop job and textured Open3D viewer.
 - `5b75d93` — benchmark replay, reserved stereo, topology and overlap diagnostics, and reproducible seam experiment.
+- `b606878` — tested opt-in shared depth witness gate and measured benchmark documentation.
 - The full Rural benchmark replay produced the identical textured GLB SHA-256 `2a37f8dd42987f4406908f1462f2faa2e414e6b51db1885ed60e1f43c39c2eff`. Both final meshes had intersections in all eight compact probe neighborhoods. The visibility-and-overlap experiment found no faces it could safely remove in either scene. Shared-witness depth retained the original point clouds and rejected 7,575 Rural and 8,333 Urban grid faces. It also found intersections in all neighborhoods and did not improve the Urban held-out 2% agreement. The benchmark assets remain `rural-export/` and `urban-export/`. The geometry target settings are 450,000 Rural and 900,000 Urban with 4096 atlases and stride-7 appearance holdout. The opt-in dense rule has real-scene and synthetic test coverage.
 
 ### Reproduction and continuation
@@ -92,3 +93,13 @@ $p='outputs/airzoo-benchmark/major-surface-improvement'
 ```
 
 Start further surface research from the original UAV depth inputs and the first-hit reserved stereo and intersection probes. Test any layer-aware fusion replacement on the same fixed inputs and require improved depth agreement and intersection evidence before promoting it. Unity is blocked by editor activation. After activation, replay `unity-tools/check_surface_import.ps1` under the output root with `-UnityEditor`, `-ExportDirectory "$p/rural-export"` and a fresh `-ProjectDirectory`. No sparse or dense benchmark needs to be repeated to recover the results already recorded here.
+
+### Independent Blender continuation
+
+Blender 5.3.0 is the active downstream import validator. Unity remains unverified. The original four bundles imported their correct UV atlases but lost 5 Rural and 10 Urban duplicate-position faces per format. Blender also returned 12 Rural and 24 Urban zero corner normals per format. Preserve this failed reference in `blender-baseline/`. Correction cleans geometry at export precision and splits shading at folded vertex fans. The weighted-winding exports in `rural-blender-ready/` and `urban-blender-ready/` passed all four strict imports. Their CPU Cycles replay was pixel-identical in all eight images.
+
+`115f6d6` adds the Blender importer, geometry/material audit and rendered regression harness. Geometry-weighted winding lowered edge-connected components from 3,699 to 2,914 in Rural and 6,124 to 3,364 in Urban before export cleanup. Urban has 3,363 in Blender after exact-position cleanup. Rural and Urban P99 sampled displacement improved from 0.000717 to 0.000697 and from 0.000921 to 0.000844 SfM units. The same deviation thresholds were applied. Urban reserved-stereo agreement within 2% improved slightly on three of four pairs and fell slightly on the fourth.
+
+The 40,000-face partial-visibility ablation raised photographic coverage from 32.47% to 36.55% Rural and from 21.44% to 23.65% Urban. It partitions the existing triangles and reruns the same per-child visibility tests. `blender-release/` passed four strict imports and all eight repeat renders were pixel-identical. All eight compact neighborhoods in each mesh still contain nonadjacent overlaps. A conservative camera-supported layer experiment found one removable Rural face and zero Urban faces, so it remains diagnostic only.
+
+`8323fbd` adds geometry-weighted winding and export-precision and shading fixes. The preferred Blender-validated bundles for further texture work are `rural-visible-refinement/` and `urban-visible-refinement/`. Geometry-only comparisons should use `rural-weighted-geometry/` and `urban-weighted-geometry/` so tessellation changes do not confound topology counts. Reproduction commands, per-format reports and the latest held-out evidence are in `blender_continuation_report.md`. Do not repeat the Unity test for this milestone. For further overlap work, start with `scripts/experiment_surface_layer_pruning.py` on those geometry directories. Its negative result identifies the limitation of removing existing faces with current evidence. A new fusion candidate needs independent depth and visibility support before changing the selected assets.
