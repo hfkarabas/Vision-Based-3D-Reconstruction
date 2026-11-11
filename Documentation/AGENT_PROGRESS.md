@@ -214,3 +214,15 @@ First compare surface generation on frozen Rural and Urban probes. Then advance 
 - **PASS WITH LIMITATIONS** for the advertised graduation-project MVP. The fresh CLI and desktop worker produced photo assets, and the visible Urban preview passed orbit, pan, zoom, fit and close. Coverage gaps, nonadjacent surface overlaps, partial texturing and uncertain metric scale remain documented. Unity and Ctrl-drag pan remain unverified. No further experiment is required for this scoped release.
 - Reproduction commands and local artifacts are listed in `Documentation/FINAL_RELEASE_REPORT.md`. `Documentation/INSTALLATION.md` and `Documentation/DEMO_GUIDE.md` describe setup and the saved and live demos.
 - `0f2725b` commits the release builder, export attestation, acceptance documentation and regression tests. The machine-readable verdict is in `outputs/final-release/release-candidate/acceptance.json`. Generated assets remain local.
+
+## MISSION III-E — VISUAL RECONSTRUCTION RECOVERY
+
+**IN PROGRESS.** Starting at `208288e`. The user rejected the visual quality of the Rural release. Keep all prior assets and unrelated working-tree changes. New results are under `outputs/airzoo-benchmark/mission-iii-e/`. Begin with fixed-camera photo, background, neutral and geometry-stage comparisons. Reuse saved crossed COLMAP experiments and select a coherent flight block by pre-reconstruction evidence.
+
+### Renderer and failure-stage diagnosis
+
+- Matched white, dark, neutral, wire, winding and face-ID renders use original triangle hits. Rural-40 top view has 6,961 GLB hits, with only 12 near-white first-hit pixels. Optimized-to-GLB occupancy is identical. Blender independently imports the same 628,000 faces. Its antialiased top mask has IoU 0.913 against pixel-center ray casts. The large gaps persist in neutral and two-sided views.
+- Rural-40 has 15,750 projected dense pixels and 7,014 raw-mesh hits. Pre-cleaning grid faces cover 10,043 pixels, the edge cap leaves 7,796, and later cleanup leaves 7,014. A large fraction has no adjacent grid triangle even before cleanup. Urban has a much larger coherent projected component.
+- Exact same-pose COLMAP depth yields 35,231 projected top pixels versus 15,750 from native MVS. Reusing independent COLMAP poses with native depth still gives only 6,522 in the frozen Rural frame. Independent poses and depth give 34,296. These are fixed-frame point hits at different sampling densities. No historical COLMAP run was repeated.
+- Saved Rural map 25→13 had 289 reciprocal pixels and 51 corroborated samples. Rectification left only about 500 valid reference-canvas pixels. The first nonempty native map had prevented further bounded attempts.
+- Diagnosis scripts have been exercised on all three release assets, and focused renderer, alignment and geometry checks passed. Outputs include `*-release-audit`, `*-blender-matched`, `*-crossed-mvs`, `*-capture`, `*-depth-audit` and `rural-grid-admission`.
