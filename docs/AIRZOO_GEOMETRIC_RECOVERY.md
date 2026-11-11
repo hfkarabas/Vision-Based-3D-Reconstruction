@@ -62,3 +62,31 @@ The pixel-aligned CPU COLMAP models register 29 Rural and 40 Urban cameras. Thei
 The full crossed comparison completed both scenes. The project MVS using COLMAP poses yielded DSM P95 residuals of 12.87 m Rural and 8.56 m Urban. Full COLMAP yielded 12.09 m and 7.23 m. The two MVS pipelines on the COLMAP Rural poses still have P99 residuals of 73.05 m and 80.06 m. Each pose set receives its own PPK/gimbal fit, and the comparison reuses a fixed per-scene DSM offset. Point sampling, footprint, and registration coverage differ across the backends.
 
 `scripts/compare_airzoo_depth_backends.py` compares the sampled project depths directly with same-pose COLMAP depth at the projected pixel. None of 17,258 sampled project depths in the localized Rural strip had valid COLMAP depth at those pixels. The result establishes a lack of independent support in that probe. Across 13 common Rural references, the median per-view share within 5% of valid COLMAP depth was 94.09% before and 94.44% after.
+
+## Raw-mesh intersections and expanded Rural diagnosis
+
+The saved winding-first Rural candidate reloads in Open3D with 445,002 triangles. It passes the original raw-mesh deviation bound, but the optimized surface has 2,674 components instead of 2,647. Blender's direct PLY import also dropped 17 candidate faces and four retained PLY faces. These counts match the duplicate triangle positions at float32 precision. The original optimization order was retained. All four retained textured GLB/OBJ imports passed and all eight replay renders matched their references pixel for pixel.
+
+The bounded raw-mesh audit compares four interior probes per face against saved same-pose COLMAP geometric depths. It checks coherent positive depth, projects using COLMAP's half-pixel convention and requires first-hit visibility for free-space evidence. Candidate removal requires contradiction from two views separated by at least 2°, no agreeing probe in any view, and a supported intersecting alternative. The depth tolerance is the greater of one fusion voxel or 0.5% of local depth. Controls are the nearest face centroids without a detected intersection within the same neighborhoods. These are bounded comparisons using another depth backend on the same source photographs. [COLMAP depth format](https://colmap.github.io/format.html#depth-and-normal-maps) · [Open3D ray casting](https://www.open3d.org/docs/release/tutorial/geometry/ray_casting.html)
+
+| Evidence | Rural | Urban |
+|---|---:|---:|
+| Intersecting pairs in eight sampled neighborhoods | 10,492 | 15,051 |
+| Pairs with neither face supported from two separated views | 10,457 | 14,065 |
+| Intersecting faces with any coherent external depth | 3,036 / 11,148 | 13,397 / 14,264 |
+| Nearby control faces with any coherent external depth | 1,850 / 7,059 | 7,645 / 8,232 |
+| Faces that meet the conservative removal test | 0 | 0 |
+
+The measurements did not support deleting either layer in the sampled pairs. Relative tolerance checks at 0.25% and 1%, using the same one-voxel floor, also yielded zero removal candidates for both scenes. Rural's low depth coverage also appears in nearby controls. Urban has greater depth coverage, but a smaller fraction of intersecting faces than controls have two separated views that agree and see the exact first-hit face. Both corrected raw meshes remain intersecting.
+
+The all-point DSM comparison uses the original per-scene offset and evaluates every fused point. A fixed voxel size alone allows conditioning to move the grid because the default origin is the minimum retained sample coordinate. `--fusion-voxel-origin X Y Z` reuses the exact `voxel_origin` reported by a baseline run, together with its `--fusion-voxel-size`. The original profile and grid defaults were retained.
+
+| Scene | Baseline DSM P95 | Conditioned DSM P95, same grid | Baseline half-meter cells retained |
+|---|---:|---:|---:|
+| Fixed Rural | 32.028 m | 11.918 m | 93.22% |
+| Fixed Urban | 8.867 m | 8.306 m | 99.53% |
+| Expanded Rural, 48 images | 13.323 m | 13.349 m | 87.69% |
+
+All 1,397,878 remaining Rural-48 fused points are exact matches to the original output when the grid is fixed. Across the 68,516 common half-meter cells, the P95 of cell-median absolute residuals is 12.134 m in both runs. The retained footprint shrinks from 78,131 cells to 68,516. Comparing unchanged rectified rasters locates the loss upstream of fusion. Of the 11,911 removed accepted depth pixels, 4,374 are below the effective disparity threshold and 7,537 lose a qualifying witness. Their median offset-aligned absolute DSM residuals are 1.28 m and 1.16 m, compared with 4.09 m for the retained pixels. The slightly higher whole-cloud P95 reflects the removal of relatively well-aligned coverage. This comparison does not verify the DSM vertical datum or absolute survey accuracy.
+
+The source evidence is in `*-resume-depth-layer-controls/`, `*-resume-grid-dsm/`, and `rural48-conditioning-loss.json`. Use `scripts/audit_intersecting_depth_layers.py` with the existing same-pose COLMAP workspace. Use `scripts/compare_airzoo_dsm.py --full-resolution` for all-point residuals and exact point membership. Use `scripts/audit_stereo_conditioning_loss.py` to classify lost accepted pixels on unchanged pairs. The new profile remains opt-in.

@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pycolmap
-
 from analyze_airzoo_geometry import percentiles, read
 
 
@@ -32,6 +30,8 @@ def read_depth(path):
 
 
 def compare(workspace, frame, variants, probe=None):
+    import pycolmap
+
     model = pycolmap.Reconstruction(workspace / "sparse")
     views = {int(Path(i.name).stem): i for i in model.images.values() if i.has_pose}
     results = {}
