@@ -35,6 +35,7 @@ class DenseProfile:
     recentered_witnesses: int = 1
     min_effective_disparity: float | None = None
     prefer_conditioned_pairs: bool = False
+    recovery_pairs: int = 0
 
 
 PROFILES = {
@@ -46,6 +47,7 @@ PROFILES = {
                         preflight_pairs=True, recenter_pairs=True, recentered_witnesses=2),
 }
 PROFILES["uav-conditioned"] = replace(PROFILES["uav"], min_effective_disparity=28, prefer_conditioned_pairs=True)
+PROFILES["uav-recovery"] = replace(PROFILES["uav-conditioned"], recovery_pairs=16)
 
 
 @dataclass
@@ -295,7 +297,7 @@ def rasterize_polygon(vertices, size):
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
                           glb=False, stage=lambda name: None, object_masks=None, obj=False, mesh_common_witnesses=False,
                           depth_diagnostics=False, min_effective_disparity=None, prefer_conditioned_pairs=False,
-                          fusion_voxel_size=None, fusion_voxel_origin=None):
+                          fusion_voxel_size=None, fusion_voxel_origin=None, recovery_pairs=None):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -313,6 +315,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     if min_effective_disparity is None:
         min_effective_disparity = settings.min_effective_disparity
     prefer_conditioned_pairs = prefer_conditioned_pairs or settings.prefer_conditioned_pairs
+    if recovery_pairs is None:
+        recovery_pairs = settings.recovery_pairs
     if mesh_common_witnesses and (not mesh or settings.max_return_px is None):
         raise ValueError("Common mesh witnesses require the UAV profile and --mesh")
     if min_effective_disparity is not None and (
@@ -321,6 +325,9 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
         raise ValueError("Minimum effective disparity must be positive, finite and used with the UAV profile")
     if prefer_conditioned_pairs and min_effective_disparity is None:
         raise ValueError("Conditioned pair selection requires a minimum effective disparity")
+    if (not isinstance(recovery_pairs, int) or not 0 <= recovery_pairs <= 32 or
+            (recovery_pairs and (min_effective_disparity is None or mesh_common_witnesses))):
+        raise ValueError("Stereo recovery requires conditioning, a budget of 0–32 pairs and no common-witness mesh gate")
     if fusion_voxel_size is not None and (not np.isfinite(fusion_voxel_size) or fusion_voxel_size <= 0):
         raise ValueError("Fusion voxel size must be positive and finite")
     if fusion_voxel_origin is not None and (fusion_voxel_size is None or
@@ -445,8 +452,35 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     else:
         accepted, support = supported_samples(maps, settings.relative_depth, settings.max_return_px,
                                               settings.recentered_witnesses,
-                                              keep_witnesses=mesh_common_witnesses or depth_diagnostics,
+                                              keep_witnesses=mesh_common_witnesses or depth_diagnostics or bool(recovery_pairs),
                                               min_effective_disparity=min_effective_disparity)
+    recovery, recovery_provenance = None, {}
+    if recovery_pairs:
+        from .depth_recovery import recover_depth
+
+        def build_alternate(reference, source, xyz):
+            a, b = cameras[reference], cameras[source]
+            try:
+                try:
+                    plan = plan_depth(poses[reference], poses[source], a, b, xyz)
+                except DisparitySearchLimit:
+                    if not settings.recenter_pairs:
+                        raise
+                    plan = plan_depth(poses[reference], poses[source], a, b, xyz, recenter=True)
+                if plan.median_effective_disparity < min_effective_disparity:
+                    return None, "weak median effective disparity"
+                left, object_a = image(reference)
+                right, object_b = image(source)
+                return make_depth(reference, source, poses[reference], poses[source], a, b, left, right, xyz,
+                                  (object_a, object_b), plan=plan), None
+            except (ValueError, cv2.error) as exc:
+                return None, str(exc)
+
+        recovery_start = perf_counter()
+        accepted, recovery, recovery_provenance = recover_depth(
+            maps, accepted, {i: p.center for i, p in poses.items()}, neighbors, build_alternate, recovery_pairs,
+            settings.relative_depth, settings.max_return_px, min_effective_disparity, settings.recentered_witnesses, stage)
+        recovery["runtime_seconds"] = perf_counter() - recovery_start
     sample_count = sum(int(mask.sum()) for _, mask, _ in accepted)
     if len(accepted) < 2 or sample_count < 100:
         reason = f"Too little independent third-view support ({len(maps)} depth maps, {sample_count} samples)"
@@ -467,11 +501,13 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     fusion_seconds = perf_counter() - fusion_start
     surface, mesh_info = None, None
     face_evidence = []
+    grid_provenance = None
     mesh_start = perf_counter()
     if mesh:
         stage("Building open surface from corroborated depth")
         offset = 0
         triangles = []
+        grid_references = []
         for depth, mask, _ in accepted:
             pixels = depth.pixels[mask]
             heights = depth.depth[pixels[:, 0], pixels[:, 1]]
@@ -485,9 +521,13 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
             if depth.transposed:
                 local = local[:, [0, 2, 1]]
             triangles.append(inverse[offset + local])
+            grid_references.append(depth.reference)
             offset += len(pixels)
         try:
-            surface, mesh_info = build_surface(xyz, colors, np.concatenate(triangles), target_faces,
+            grid_faces = np.concatenate(triangles)
+            if depth_diagnostics:
+                grid_provenance = (grid_faces, grid_references, [len(face_set) for face_set in triangles])
+            surface, mesh_info = build_surface(xyz, colors, grid_faces, target_faces,
                                               max_edge=voxel * 6 if settings.clean_surface else None)
         except ValueError as exc:
             mesh_info = {"status": "rejected", "reason": str(exc)}
@@ -515,7 +555,11 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     export_cloud(output / "dense.ply", xyz, colors)
     if depth_diagnostics:
         from .depth_diagnostics import save_depth_diagnostics
-        save_depth_diagnostics(output, maps, accepted, inverse, plans, poses)
+        save_depth_diagnostics(output, maps, accepted, inverse, plans, poses, recovery=recovery_provenance)
+        if grid_provenance is not None:
+            triangles, references, counts = grid_provenance
+            np.savez_compressed(output / "depth-observations" / "grid-faces.npz",
+                                triangles=triangles, references=references, counts=counts)
     if support is not None:
         coverage = output / "depth-coverage"
         coverage.mkdir()
@@ -571,6 +615,7 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                "bounds": {"min": xyz.min(axis=0).tolist(), "max": xyz.max(axis=0).tolist()},
                "voxel_size": voxel, "pair_attempts": attempts, "mesh_requested": mesh,
                "voxel_origin": origin.tolist(),
+               "depth_recovery": recovery,
                "approximate_intrinsics": any(original[i].approximate for d in maps for i in (d.reference, d.source)),
                "mesh": mesh_info,
                "stage_seconds": {"depth": depth_seconds, "fusion": fusion_seconds, "mesh": mesh_seconds,

@@ -188,7 +188,8 @@ def main(argv=None):
     multiview = sub.add_parser("dense-sequence", help="Fuse independently checked multi-view stereo depth")
     multiview.add_argument("--sparse-dir", required=True)
     multiview.add_argument("--output", required=True)
-    multiview.add_argument("--profile", choices=("fast", "balanced", "high", "uav", "uav-conditioned"), default="balanced")
+    multiview.add_argument("--profile", choices=("fast", "balanced", "high", "uav", "uav-conditioned", "uav-recovery"),
+                           default="balanced")
     multiview.add_argument("--mesh", action="store_true")
     multiview.add_argument("--object-masks", help="JSON mapping registered filenames to normalized object polygons")
     multiview.add_argument("--glb", action="store_true", help="Also export a validated vertex-colored GLB mesh")
@@ -203,6 +204,8 @@ def main(argv=None):
                            help="Fix the fusion voxel size in SfM units for controlled comparisons")
     multiview.add_argument("--fusion-voxel-origin", type=float, nargs=3, metavar=("X", "Y", "Z"),
                            help="Reuse an exact fusion grid origin with --fusion-voxel-size")
+    multiview.add_argument("--recovery-pairs", type=int,
+                           help="Budget of alternate stereo pairs for opt-in conditioned recovery")
     multiview.add_argument("--mesh-common-witnesses", action="store_true",
                            help="Require all three mesh corners to share the UAV depth witnesses")
     asset = sub.add_parser("surface-asset", help="Validate and optimize a completed dense surface")
