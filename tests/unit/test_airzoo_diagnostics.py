@@ -54,3 +54,17 @@ def test_dsm_exact_membership_reports_removed_and_added_residuals(monkeypatch):
     assert result["identical_absolute_residual_m"] == [2.] * 5
     assert result["only_baseline_absolute_residual_m"] == [.5] * 5
     assert result["only_variant_absolute_residual_m"] == [1.] * 5
+
+
+def test_grid_normal_filter_requires_two_disjoint_supporting_image_pairs(monkeypatch):
+    module = script(monkeypatch, "experiment_grid_normal_consensus")
+    base = np.array([[0., 0, 0], [1., 0, 0], [0., 1, 0]])
+    points = np.concatenate((base, base + [0, 0, .1], base + [0, .1, 0]))
+    main = np.array([[0, 1, 2]])
+    witnesses = np.array([[0, 3, 6], [1, 4, 7], [2, 5, 8]])
+    grids = [main, witnesses, witnesses]
+    independent = module.supported_grid_masks(points, grids, [{0, 1}, {2, 3}, {4, 5}])
+    correlated = module.supported_grid_masks(points, grids, [{0, 1}, {2, 3}, {3, 4}])
+    assert independent[0].tolist() == [False]
+    assert correlated[0].tolist() == [True]
+    assert independent[1].all() and independent[2].all()
