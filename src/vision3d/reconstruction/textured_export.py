@@ -9,7 +9,7 @@ import numpy as np
 import open3d as o3d
 from PIL import Image
 
-from .surface_validation import face_geometry, mesh_arrays, repair_winding, topology, update_surface_normals
+from .surface_validation import face_geometry, mesh_arrays, paired_edges, repair_winding, topology, update_surface_normals
 
 
 def prepare_texture_mesh(mesh, units_per_world):
@@ -75,6 +75,12 @@ def textured_primitives(mesh, atlas, units_per_world):
     alignment = np.sum(normals[faces] * face_normals[:, None, :], axis=2)
     sharp_vertices = np.zeros(len(xyz), dtype=bool)
     sharp_vertices[faces[alignment <= .2]] = True
+    a, b, left, right = paired_edges(faces, len(xyz))
+    # A shared vertex normal can point into both hemispheres of a folded fan,
+    # while the importer cannot construct a stable smooth corner basis there.
+    folds = left[np.einsum("ij,ij->i", face_normals[left // 3], face_normals[right // 3]) <= 0]
+    sharp_vertices[a[folds]] = True
+    sharp_vertices[b[folds]] = True
 
     def indices_for(selected, chart):
         local = faces[selected].ravel()

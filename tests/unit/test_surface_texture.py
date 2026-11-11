@@ -57,16 +57,19 @@ def test_precision_cleanup_drops_only_redundant_face():
     assert stats["duplicate_faces_removed"] == 1 and stats["relative_area_loss"] == 0
 
 
-def test_export_splits_shading_at_an_almost_opposing_fold():
-    xyz = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 1, .1]]
-    mesh = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(xyz), o3d.utility.Vector3iVector([[0, 1, 2], [1, 0, 3]]))
+@pytest.mark.parametrize(("opposite", "maximum_normal_dot"), [([0, 1, .1], -.99), ([0, .5, np.sqrt(.75)], -.49)])
+def test_export_splits_shading_at_a_fold_without_moving_vertices(opposite, maximum_normal_dot):
+    xyz = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], opposite])
+    faces = np.array([[0, 1, 2], [1, 0, 3]])
+    mesh = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(xyz), o3d.utility.Vector3iVector(faces))
     mesh.compute_vertex_normals()
     uv = np.array([[[.1, .1], [.9, .1], [.1, .9]], [[.9, .1], [.1, .1], [.1, .9]]], dtype=np.float32)
     atlas = TextureAtlas(np.zeros((4, 4, 3), np.uint8), np.zeros(2, np.int32), uv, {})
     [(attributes, indices)] = textured_primitives(mesh, atlas, 1.)
     corner_normals = attributes["NORMAL"][indices].reshape(2, 3, 3)
     assert len(attributes["POSITION"]) == 6
-    assert corner_normals[0, 0] @ corner_normals[1, 1] < -.99
+    assert corner_normals[0, 0] @ corner_normals[1, 1] < maximum_normal_dot
+    assert np.allclose(attributes["POSITION"][indices].reshape(2, 3, 3), xyz[faces] * [1, -1, -1])
 
 
 def test_visibility_subdivision_keeps_neighbor_conforming_and_area_exact():
