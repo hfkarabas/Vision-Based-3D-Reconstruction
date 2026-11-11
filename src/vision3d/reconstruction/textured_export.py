@@ -9,7 +9,50 @@ import numpy as np
 import open3d as o3d
 from PIL import Image
 
-from .surface_validation import mesh_arrays
+from .surface_validation import face_geometry, mesh_arrays, repair_winding, topology, update_surface_normals
+
+
+def prepare_texture_mesh(mesh, units_per_world):
+    """Resolve duplicate positions and faces at the precision used by both exporters."""
+    if not np.isfinite(units_per_world) or units_per_world <= 0:
+        raise ValueError("Export units per SfM unit must be positive and finite")
+    xyz, faces = mesh_arrays(mesh)
+    colors = np.asarray(mesh.vertex_colors)
+    if colors.shape != xyz.shape:
+        raise ValueError("Photographic assets need fallback vertex colors")
+    scaled = np.asarray(xyz * units_per_world, dtype=np.float32)
+    if not np.isfinite(scaled).all():
+        raise ValueError("Scaled positions exceed the export coordinate range")
+    _, first, index = np.unique(scaled, axis=0, return_index=True, return_inverse=True)
+    indexed = index[faces]
+    _, _, original_area = face_geometry(xyz, faces)
+    _, _, rounded_area = face_geometry(scaled.astype(np.float64), faces)
+    finite = np.flatnonzero(rounded_area > 0)
+    _, unique_faces = np.unique(np.sort(indexed[finite], axis=1), axis=0, return_index=True)
+    keep = np.sort(finite[unique_faces])
+    result = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(xyz[first]),
+                                     o3d.utility.Vector3iVector(indexed[keep]))
+    result.vertex_colors = o3d.utility.Vector3dVector(colors[first])
+    result.remove_non_manifold_edges()
+    result.remove_unreferenced_vertices()
+    _, stats = topology(result)
+    winding_cuts = 0
+    if stats["winding_conflicts"]:
+        winding_cuts = repair_winding(result, geometry_weighted=True)["contradictory_faces_cut"]
+    cancelled = update_surface_normals(result)
+    _, stats = topology(result)
+    _, _, result_area = face_geometry(*mesh_arrays(result))
+    retained_unique_area = original_area[keep].sum()
+    area_loss = (original_area[rounded_area == 0].sum()
+                 + max(0, retained_unique_area - result_area.sum())) / retained_unique_area
+    if (stats["winding_conflicts"] or stats["nonmanifold_edges"] or stats["degenerate_triangles"]
+            or stats["invalid_vertex_normals"] or area_loss > .0001):
+        raise ValueError(f"Export precision cleanup exceeds its topology or area bound: {stats}, {area_loss:g}")
+    return result, {"coincident_vertices": len(xyz) - len(first), "duplicate_faces_removed": len(finite) - len(keep),
+                    "rounded_zero_area_faces_removed": len(faces) - len(finite),
+                    "nonmanifold_faces_removed": len(keep) - len(result.triangles) - winding_cuts,
+                    "winding_faces_removed": winding_cuts,
+                    "relative_area_loss": float(area_loss), "cancelled_vertex_normals_recovered": cancelled}
 
 
 def textured_primitives(mesh, atlas, units_per_world):
@@ -27,6 +70,24 @@ def textured_primitives(mesh, atlas, units_per_world):
     if not np.isfinite(xyz).all():
         raise ValueError("Scaled positions exceed the export coordinate range")
     normals = np.asarray(normals * basis / np.linalg.norm(normals, axis=1, keepdims=True), dtype="<f4")
+    _, cross, areas = face_geometry(xyz.astype(np.float64), faces)
+    face_normals = cross / np.maximum(2 * areas[:, None], 1e-30)
+    alignment = np.sum(normals[faces] * face_normals[:, None, :], axis=2)
+    sharp_vertices = np.zeros(len(xyz), dtype=bool)
+    sharp_vertices[faces[alignment <= .2]] = True
+
+    def indices_for(selected, chart):
+        local = faces[selected].ravel()
+        sharp = sharp_vertices[local]
+        shading = np.where(sharp, np.repeat(np.flatnonzero(selected) + 1, 3), 0)
+        keys = np.column_stack((np.repeat(chart, 3).astype(np.int64) * len(xyz) + local, shading))
+        keys, first, indices = np.unique(keys, axis=0, return_index=True, return_inverse=True)
+        rows = keys[:, 0] % len(xyz)
+        values = normals[rows].copy()
+        split = keys[:, 1] > 0
+        values[split] = face_normals[keys[split, 1] - 1]
+        return rows, first, indices, values
+
     primitives = []
     selected = atlas.chart >= 0
     uv = atlas.uv[selected]
@@ -34,18 +95,16 @@ def textured_primitives(mesh, atlas, units_per_world):
     if (not np.isfinite(uv).all() or np.any((uv < 0) | (uv > 1))
             or np.any(np.abs(p[:, 0] * q[:, 1] - p[:, 1] * q[:, 0]) <= 1e-12)):
         raise ValueError("Atlas includes degenerate or out-of-bounds UV coordinates")
-    keys = np.repeat(atlas.chart[selected], 3).astype(np.int64) * len(xyz) + faces[selected].ravel()
-    vertices, first, indices = np.unique(keys, return_index=True, return_inverse=True)
-    rows = vertices % len(xyz)
-    primitives.append(({"POSITION": xyz[rows], "NORMAL": normals[rows], "TEXCOORD_0": uv.reshape(-1, 2)[first]}, indices))
+    rows, first, indices, values = indices_for(selected, atlas.chart[selected])
+    primitives.append(({"POSITION": xyz[rows], "NORMAL": values, "TEXCOORD_0": uv.reshape(-1, 2)[first]}, indices))
     if (~selected).any():
         colors = np.asarray(mesh.vertex_colors)
         if colors.shape != xyz.shape or not np.isfinite(colors).all() or np.any((colors < 0) | (colors > 1)):
             raise ValueError("Unsupported faces need finite fallback vertex colors")
-        rows, indices = np.unique(faces[~selected].ravel(), return_inverse=True)
+        rows, _, indices, values = indices_for(~selected, np.zeros(np.count_nonzero(~selected), np.int32))
         rgb = colors[rows]
         linear = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4)
-        primitives.append(({"POSITION": xyz[rows], "NORMAL": normals[rows], "COLOR_0": linear}, indices))
+        primitives.append(({"POSITION": xyz[rows], "NORMAL": values, "COLOR_0": linear}, indices))
     return primitives
 
 

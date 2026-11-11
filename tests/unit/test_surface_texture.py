@@ -7,9 +7,9 @@ from vision3d.geometry.camera import Camera
 from vision3d.demo.viewer import load_textured_meshes
 from vision3d.reconstruction.pair import source_hash
 from vision3d.reconstruction.state import Pose
-from vision3d.reconstruction.surface_texture import bake_texture
+from vision3d.reconstruction.surface_texture import TextureAtlas, bake_texture
 from vision3d.reconstruction.surface_validation import SurfaceView
-from vision3d.reconstruction.textured_export import export_textured_glb, export_textured_obj, textured_primitives
+from vision3d.reconstruction.textured_export import export_textured_glb, export_textured_obj, prepare_texture_mesh, textured_primitives
 
 
 def test_photographic_atlas_rejects_hidden_faces_and_roundtrips_fallback(tmp_path):
@@ -45,3 +45,24 @@ def test_photographic_atlas_rejects_hidden_faces_and_roundtrips_fallback(tmp_pat
     atlas.uv[0, 2] = atlas.uv[0, 1]
     with pytest.raises(ValueError, match="degenerate"):
         textured_primitives(mesh, atlas, 1.)
+
+
+def test_precision_cleanup_drops_only_redundant_face():
+    xyz = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0]]
+    mesh = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(xyz), o3d.utility.Vector3iVector([[0, 1, 2], [3, 4, 5]]))
+    mesh.paint_uniform_color([.1, .2, .3])
+    result, stats = prepare_texture_mesh(mesh, 1.)
+    assert len(result.triangles) == 1
+    assert stats["duplicate_faces_removed"] == 1 and stats["relative_area_loss"] == 0
+
+
+def test_export_splits_shading_at_an_almost_opposing_fold():
+    xyz = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 1, .1]]
+    mesh = o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(xyz), o3d.utility.Vector3iVector([[0, 1, 2], [1, 0, 3]]))
+    mesh.compute_vertex_normals()
+    uv = np.array([[[.1, .1], [.9, .1], [.1, .9]], [[.9, .1], [.1, .1], [.1, .9]]], dtype=np.float32)
+    atlas = TextureAtlas(np.zeros((4, 4, 3), np.uint8), np.zeros(2, np.int32), uv, {})
+    [(attributes, indices)] = textured_primitives(mesh, atlas, 1.)
+    corner_normals = attributes["NORMAL"][indices].reshape(2, 3, 3)
+    assert len(attributes["POSITION"]) == 6
+    assert corner_normals[0, 0] @ corner_normals[1, 1] < -.99
