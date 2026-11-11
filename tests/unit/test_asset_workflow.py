@@ -75,3 +75,36 @@ def test_asset_workflow_records_only_verified_outputs(tmp_path, monkeypatch):
     assert report == json.loads((run / "workflow.json").read_text())
     assert report["status"] == "success" and report["registered_images"] == 5
     assert report["photographic_area_fraction"] == .45 and len(report["assets"]) == 6
+
+
+def test_asset_workflow_reuses_saved_dense_mesh_and_rejects_profile_mismatch(tmp_path, monkeypatch):
+    sparse, dense = tmp_path / "sparse", tmp_path / "dense"
+    sparse.mkdir()
+    dense.mkdir()
+    (sparse / "metrics.json").write_text('{"status": "success", "registered_images": 4}')
+    (dense / "metrics.json").write_text(json.dumps({"status": "success", "mesh": {"status": "success"},
+        "dense_points": 300, "profile": "uav-recovery", "source_sparse": str(sparse)}))
+    for name in ("dense.ply", "mesh.ply", "poses.json", "intrinsics.json"):
+        (dense / name).write_bytes(b"source")
+
+    def surface(source, output, **kwargs):
+        assert source == dense
+        output.mkdir()
+        (output / "mesh.ply").write_bytes(b"optimized")
+
+    def texture(_surface, output, **kwargs):
+        output.mkdir()
+        (output / "textured.glb").write_bytes(b"texture")
+        return {"texture": {"textured_area_fraction": .45}}
+
+    monkeypatch.setattr(asset_workflow, "build_surface_asset", surface)
+    monkeypatch.setattr(asset_workflow, "build_texture_asset", texture)
+    monkeypatch.setattr(asset_workflow, "reconstruct_multiview", lambda *a, **k: pytest.fail("Dense was rerun"))
+    with pytest.raises(ValueError, match="differs"):
+        asset_workflow.reconstruct_asset(tmp_path / "wrong-profile", dense_dir=dense, profile="uav")
+    assert not (tmp_path / "wrong-profile").exists()
+    report = asset_workflow.reconstruct_asset(tmp_path / "resumed", dense_dir=dense)
+    assert report["profile"] == "uav-recovery"
+    assert report["stages"]["sparse"]["reused"] and report["stages"]["dense"]["reused"]
+    assert (dense / "mesh.ply").read_bytes() == b"source"
+    assert report["assets"]["dense_ply"] == str(dense / "dense.ply")
