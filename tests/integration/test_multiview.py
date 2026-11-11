@@ -1,3 +1,4 @@
+from dataclasses import replace
 import json
 
 import numpy as np
@@ -55,8 +56,9 @@ def test_fixed_fusion_grid_survives_removal_of_extreme_sample():
 
 @pytest.mark.parametrize(("profile", "common_witnesses", "conditioning"), [
     ("fast", False, None), ("uav", False, None), ("uav", True, None), ("uav-conditioned", False, 8),
+    ("uav-coverage", False, 8),
 ])
-def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_witnesses, conditioning):
+def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, monkeypatch, profile, common_witnesses, conditioning):
     camera = Camera(256, 192, 120, 120, 127.5, 95.5)
     base = np.random.default_rng(17).integers(0, 256, (192, 256, 3), dtype=np.uint8)
     source = tmp_path / "sparse"
@@ -78,6 +80,22 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_w
     for name, data in files.items():
         (source / name).write_text(json.dumps(data))
     out = tmp_path / "out"
+    if profile == "uav-coverage":
+        from vision3d.reconstruction import multiview
+
+        truncated = []
+
+        def weak_first(reference, *args, **kwargs):
+            measured = make_depth(reference, *args, **kwargs)
+            if reference != 0 or truncated:
+                return measured
+            truncated.append(measured.source)
+            pixels = measured.pixels[:200]
+            depth = np.zeros_like(measured.depth)
+            depth[tuple(pixels.T)] = measured.depth[tuple(pixels.T)]
+            return replace(measured, depth=depth, pixels=pixels, xyz=measured.xyz[:200], colors=measured.colors[:200])
+
+        monkeypatch.setattr(multiview, "make_depth", weak_first)
     result = reconstruct_multiview(source, out, profile=profile, mesh=True, glb=True, obj=True,
                                    mesh_common_witnesses=common_witnesses, depth_diagnostics=bool(conditioning),
                                    min_effective_disparity=conditioning,
@@ -88,6 +106,10 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_w
     assert result["mesh"]["multi_image_color_vertices"] > 100
     assert result["mesh"]["glb"]["status"] == "success"
     assert result["mesh"]["obj"]["status"] == "success"
+    if profile == "uav-coverage":
+        candidates = [item for item in result["pair_attempts"] if item["reference"] == 0 and "selected" in item]
+        assert candidates[0]["decision"] == "weak reciprocal coverage" and not candidates[0]["selected"]
+        assert candidates[-1]["selected"] and candidates[-1]["depth_pixels"] > 200
     if common_witnesses:
         assert sum(row["faces_kept"] for row in result["mesh_common_witnesses"]) > 100
     if profile.startswith("uav"):

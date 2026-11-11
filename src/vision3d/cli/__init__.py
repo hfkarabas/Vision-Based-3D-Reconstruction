@@ -188,7 +188,8 @@ def main(argv=None):
     multiview = sub.add_parser("dense-sequence", help="Fuse independently checked multi-view stereo depth")
     multiview.add_argument("--sparse-dir", required=True)
     multiview.add_argument("--output", required=True)
-    multiview.add_argument("--profile", choices=("fast", "balanced", "high", "uav", "uav-conditioned", "uav-recovery"),
+    multiview.add_argument("--profile", choices=("fast", "balanced", "high", "uav", "uav-conditioned", "uav-recovery",
+                                                  "uav-coverage"),
                            default="balanced")
     multiview.add_argument("--mesh", action="store_true")
     multiview.add_argument("--object-masks", help="JSON mapping registered filenames to normalized object polygons")
@@ -236,7 +237,7 @@ def main(argv=None):
     product_input.add_argument("--dense-dir", help="Resume optimization and texturing from a completed dense mesh")
     product.add_argument("--output", required=True)
     product.add_argument("--camera", help="Use explicit calibration instead of automatic intrinsics")
-    product.add_argument("--profile", choices=("uav", "uav-conditioned", "uav-recovery"),
+    product.add_argument("--profile", choices=("uav", "uav-conditioned", "uav-recovery", "uav-coverage"),
                          help="Dense profile (default uav for new depth, or the saved profile when resuming)")
     product.add_argument("--max-images", type=int, default=40)
     product.add_argument("--max-dimension", type=int, default=1600)

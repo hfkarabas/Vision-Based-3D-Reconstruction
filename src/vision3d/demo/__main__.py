@@ -105,7 +105,7 @@ class DemoApp:
         ttk.Label(dense_options, text="Multi-view").pack(side="left", padx=(0, 6))
         self.profile_box = ttk.Combobox(dense_options, textvariable=self.dense_profile,
                                         values=("Sparse only", "fast", "balanced", "high", "uav", "uav-conditioned",
-                                                "uav-recovery"),
+                                                "uav-recovery", "uav-coverage"),
                                         state="readonly", width=16)
         self.profile_box.pack(side="left")
         self.profile_box.bind("<<ComboboxSelected>>", lambda event: self.busy(False))
