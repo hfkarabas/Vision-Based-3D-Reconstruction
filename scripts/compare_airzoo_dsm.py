@@ -109,11 +109,15 @@ def evaluation(sparse, dsm, variants, output):
               "variants": {}}
     output.mkdir(parents=True, exist_ok=False)
     clouds = []
+    cell_counts = {}
     baseline = None
     for name, directory in variants:
         directory = Path(directory)
         points = np.asarray(o3d.io.read_point_cloud(str(directory / "dense.ply")).points)
-        samples = geo(points[::max(1, len(points) // 180000)])
+        xy = geo(points)[:, :2]
+        cells = np.unique(np.floor(xy / .5).astype(np.int64), axis=0)
+        cell_counts[name] = set(map(tuple, cells))
+        samples = geo(points[::max(1, (len(points) + 179999) // 180000)])
         depth = raster.sample(samples[:, :2])
         mask = np.isfinite(depth)
         delta = samples[mask, 2] - depth[mask]
@@ -125,10 +129,14 @@ def evaluation(sparse, dsm, variants, output):
         centered = delta - baseline
         xy_cells = np.unique(np.floor(samples[mask, :2] / .5), axis=0)
         result["variants"][name] = {"samples": len(samples), "valid_dsm_samples": int(mask.sum()),
-             "occupied_half_meter_cells": len(xy_cells), "delta_height_m": q(delta),
+             "occupied_half_meter_cells": len(cells), "sampled_half_meter_cells": len(xy_cells),
+             "delta_height_m": q(delta),
              "absolute_delta_after_fixed_baseline_offset_m": q(abs(centered)),
-             "over_10m_from_centered_dsm_fraction": float((abs(centered) > 10).mean()), "views": []}
-        for record in read(directory / "depth-observations/manifest.json")["pairs"]:
+             "over_10m_from_centered_dsm_fraction": float((abs(centered) > 10).mean()),
+             "below_dsm_by_10m_fraction": float((centered < -10).mean()),
+             "above_dsm_by_10m_fraction": float((centered > 10).mean()), "views": []}
+        provenance = read(directory / "depth-observations/manifest.json")
+        for record in provenance["pairs"]:
             with np.load(directory / "depth-observations" / record["file"]) as data:
                 row = {k: record[k] for k in ("reference", "source", "recentered")}
                 for key in ("raw_xyz", "accepted_xyz"):
@@ -138,9 +146,30 @@ def evaluation(sparse, dsm, variants, output):
                     valid = np.isfinite(error)
                     row[key] = {"valid_samples": int(valid.sum()), "signed_centered_residual_m": q(error[valid]),
                                 "over_10m_fraction": float((abs(error[valid]) > 10).mean()) if valid.any() else None}
+                    if key == "accepted_xyz" and valid.any():
+                        indices = np.flatnonzero(valid)
+                        extremes = indices[np.argsort(error[valid])[[0, -1]]]
+                        details = []
+                        for index in extremes:
+                            witness = int(data["accepted_witness_bits"][index])
+                            yx = data["accepted_pixels_yx"][index]
+                            details.append({"offset_residual_m": float(error[index]), "world": data[key][index].tolist(),
+                                            "rectified_pixel_yx": yx.tolist(),
+                                            "rectified_depth": float(data["depth"][tuple(yx)]),
+                                            "fused_vertex": int(data["fused_vertex"][index]),
+                                            "witness_references": [i for bit, i in enumerate(provenance["witness_bit_order"])
+                                                                   if witness & (1 << bit)]})
+                        row["signed_extremes"] = details
                 result["variants"][name]["views"].append(row)
         clouds.append((name, samples[mask], centered))
     result["fixed_baseline_dsm_offset_m"] = baseline
+    baseline_cells = cell_counts[next(iter(cell_counts))]
+    for name, cells in cell_counts.items():
+        overlap = baseline_cells & cells
+        result["variants"][name].update(
+            baseline_half_meter_cells_retained=len(overlap),
+            new_half_meter_cells=len(cells - baseline_cells),
+            baseline_half_meter_cell_retention=len(overlap) / len(baseline_cells))
     if clouds:
         fig, panels = plt.subplots(1, len(clouds), figsize=(5 * len(clouds), 4), squeeze=False, layout="constrained")
         limits = [clouds[0][1][:, :2].min(axis=0), clouds[0][1][:, :2].max(axis=0)]

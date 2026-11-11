@@ -104,7 +104,8 @@ class DemoApp:
         dense_options.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(dense_options, text="Multi-view").pack(side="left", padx=(0, 6))
         self.profile_box = ttk.Combobox(dense_options, textvariable=self.dense_profile,
-                                        values=("Sparse only", "fast", "balanced", "high", "uav"), state="readonly", width=12)
+                                        values=("Sparse only", "fast", "balanced", "high", "uav", "uav-conditioned"),
+                                        state="readonly", width=16)
         self.profile_box.pack(side="left")
         self.profile_box.bind("<<ComboboxSelected>>", lambda event: self.busy(False))
         self.mesh_check = ttk.Checkbutton(dense_options, text="Colored mesh", variable=self.mesh_requested,

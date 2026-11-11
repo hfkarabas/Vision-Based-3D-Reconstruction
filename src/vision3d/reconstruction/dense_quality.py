@@ -35,9 +35,11 @@ def spread_references(neighbors, visibility, budget):
     return selected
 
 
-def round_trip_depth(sample, witness, tolerance, max_return_px, rgb_tolerance=.25):
+def round_trip_depth(sample, witness, tolerance, max_return_px, rgb_tolerance=.25,
+                     sample_rows=None, witness_max_depth=np.inf):
     """Interpolate a coherent witness footprint, then project it back to the source pixel."""
-    local = sample.xyz @ witness.rotation.T + witness.translation
+    xyz = sample.xyz if sample_rows is None else sample.xyz[sample_rows]
+    local = xyz @ witness.rotation.T + witness.translation
     rows = np.flatnonzero(np.isfinite(local).all(axis=1) & (local[:, 2] > 0))
     projected = local[rows] @ witness.intrinsic.T
     uv = projected[:, :2] / projected[:, 2:3]
@@ -49,11 +51,13 @@ def round_trip_depth(sample, witness, tolerance, max_return_px, rgb_tolerance=.2
     weights = np.column_stack(((1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy))
     footprint = witness.depth[y[:, None] + [0, 0, 1, 1], x[:, None] + [0, 1, 0, 1]]
     near, far = footprint.min(axis=1), footprint.max(axis=1)
-    consistent = (near > 0) & (far - near <= tolerance * near)
+    consistent = (near > 0) & (far <= witness_max_depth) & (far - near <= tolerance * near)
     rows, uv, weights, footprint = rows[consistent], uv[consistent], weights[consistent], footprint[consistent]
     depth = 1 / (weights / footprint).sum(axis=1)
     depth_ok = np.abs(local[rows, 2] - depth) <= tolerance * depth
     rows, uv, depth = rows[depth_ok], uv[depth_ok], depth[depth_ok]
+    if sample_rows is not None:
+        rows = sample_rows[rows]
     rays = np.column_stack((uv, np.ones(len(uv)))) @ np.linalg.inv(witness.intrinsic).T
     world = (rays * depth[:, None] - witness.translation) @ witness.rotation
     returned = (world @ sample.rotation.T + sample.translation) @ sample.intrinsic.T
@@ -66,12 +70,21 @@ def round_trip_depth(sample, witness, tolerance, max_return_px, rgb_tolerance=.2
     return rows[accepted], rgb[accepted], error[accepted]
 
 
-def supported_samples(maps, tolerance, max_return_px, recentered_witnesses=1, keep_witnesses=False):
+def supported_samples(maps, tolerance, max_return_px, recentered_witnesses=1, keep_witnesses=False,
+                      min_effective_disparity=None):
     """Count corroboration once per witness reference and weight it by pixel agreement."""
     if len({depth.reference for depth in maps}) != len(maps):
         raise ValueError("Depth corroboration needs one map per reference camera")
     if keep_witnesses and len(maps) > 64:
         raise ValueError("Face corroboration supports at most 64 depth references")
+    max_depths = {}
+    if min_effective_disparity is not None:
+        if not np.isfinite(min_effective_disparity) or min_effective_disparity <= 0:
+            raise ValueError("Minimum effective disparity must be positive and finite")
+        for depth in maps:
+            if not np.isfinite(depth.focal_baseline) or depth.focal_baseline <= 0:
+                raise ValueError("Depth conditioning requires a valid rectified focal length times baseline")
+            max_depths[depth.reference] = depth.focal_baseline / min_effective_disparity
     accepted, diagnostics = [], []
     for sample in maps:
         counts = np.zeros(len(sample.xyz), np.int32)
@@ -80,11 +93,17 @@ def supported_samples(maps, tolerance, max_return_px, recentered_witnesses=1, ke
         best = np.full(len(sample.xyz), np.inf)
         if keep_witnesses:
             sample.witness_bits = np.zeros(len(sample.xyz), dtype=np.uint64)
+        rows_to_check = None
+        if min_effective_disparity is not None:
+            z = sample.depth[tuple(sample.pixels.T)]
+            rows_to_check = np.flatnonzero((z > 0) & (z <= max_depths[sample.reference]))
         for witness_index, witness in enumerate(maps):
             if (witness.reference == sample.reference
                     or {witness.reference, witness.source} == {sample.reference, sample.source}):
                 continue
-            rows, rgb, error = round_trip_depth(sample, witness, tolerance, max_return_px)
+            conditioning = {} if rows_to_check is None else {
+                "sample_rows": rows_to_check, "witness_max_depth": max_depths[witness.reference]}
+            rows, rgb, error = round_trip_depth(sample, witness, tolerance, max_return_px, **conditioning)
             weight = 1 / (1 + (error / max_return_px) ** 2)
             counts[rows] += 1
             if keep_witnesses:
@@ -97,6 +116,7 @@ def supported_samples(maps, tolerance, max_return_px, recentered_witnesses=1, ke
         diagnostics.append({"reference": sample.reference, "source": sample.source,
                             "minimum_witnesses": minimum,
                             "raw_samples": len(sample.xyz), "checked_samples": int(mask.sum()),
+                            "conditioning_eligible_samples": len(sample.xyz) if rows_to_check is None else len(rows_to_check),
                             "witness_histogram": np.bincount(counts).tolist(),
                             "best_return_px_p50_p95": np.percentile(best[mask], [50, 95]).tolist() if mask.any() else None})
         if mask.any():

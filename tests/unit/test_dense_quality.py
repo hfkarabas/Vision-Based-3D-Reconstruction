@@ -108,3 +108,23 @@ def test_mesh_face_requires_a_witness_shared_across_all_corners():
     faces = np.array([[0, 1, 2], [0, 1, 3]])
     assert shared_witness_faces(masks, faces, 1).tolist() == [False, True]
     assert shared_witness_faces(masks, faces, 2).tolist() == [False, False]
+
+
+@pytest.mark.parametrize("first_fb, second_fb, retained", [(30, 30, True), (20, 30, False), (30, 20, False)])
+def test_effective_disparity_gates_both_depths_without_mutating_raw_maps(first_fb, second_fb, retained):
+    k = np.array([[100, 0, 8], [0, 100, 8], [0, 0, 1]])
+    image = np.full((18, 18, 3), 128, np.uint8)
+    depths = np.full(image.shape[:2], 1, np.float32)
+    depths[13:, 13:] = 2
+    pixels = np.array([[14, 14], [8, 8]])
+    world = np.array([[.12, .12, 2.], [0, 0, 1.]])
+    maps = [DepthMap(i, i + 2, np.eye(3), np.zeros(3), k, depths.copy(), image,
+                     pixels, world, np.full((2, 3), 128 / 255), focal_baseline=fb)
+            for i, fb in enumerate([first_fb, second_fb])]
+    accepted, diagnostics = dense_quality.supported_samples(maps, .02, 1.5, min_effective_disparity=28)
+    assert bool(accepted) is retained
+    if retained:
+        assert accepted[0][1].tolist() == [False, True]
+        assert diagnostics[0]["conditioning_eligible_samples"] == 1
+    assert np.array_equal(maps[0].depth, depths)
+    assert dense_quality.supported_samples(maps, .02, 1.5)[0][0][1].all()

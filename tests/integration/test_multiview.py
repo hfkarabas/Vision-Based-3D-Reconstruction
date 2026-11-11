@@ -40,8 +40,10 @@ def test_voxel_averages_both_geometry_and_color():
     assert np.allclose(rgb[0], [.5, .5, 0])
 
 
-@pytest.mark.parametrize(("profile", "common_witnesses"), [("fast", False), ("uav", False), ("uav", True)])
-def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_witnesses):
+@pytest.mark.parametrize(("profile", "common_witnesses", "conditioning"), [
+    ("fast", False, None), ("uav", False, None), ("uav", True, None), ("uav-conditioned", False, 8),
+])
+def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_witnesses, conditioning):
     camera = Camera(256, 192, 120, 120, 127.5, 95.5)
     base = np.random.default_rng(17).integers(0, 256, (192, 256, 3), dtype=np.uint8)
     source = tmp_path / "sparse"
@@ -64,7 +66,9 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_w
         (source / name).write_text(json.dumps(data))
     out = tmp_path / "out"
     result = reconstruct_multiview(source, out, profile=profile, mesh=True, glb=True, obj=True,
-                                   mesh_common_witnesses=common_witnesses)
+                                   mesh_common_witnesses=common_witnesses, depth_diagnostics=bool(conditioning),
+                                   min_effective_disparity=conditioning,
+                                   fusion_voxel_size=.09 if conditioning else None)
     assert result["depth_maps"] == 3 and len(result["fused_references"]) == 3
     assert result["checked_samples"] > result["dense_points"] > 1000
     assert result["mesh"]["multi_image_color_vertices"] > 100
@@ -72,10 +76,16 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_w
     assert result["mesh"]["obj"]["status"] == "success"
     if common_witnesses:
         assert sum(row["faces_kept"] for row in result["mesh_common_witnesses"]) > 100
-    if profile == "uav":
+    if profile.startswith("uav"):
         assert result["mesh"]["open_manifold_edges"]
         assert all(row["checked_samples"] > 100 for row in result["depth_support"])
     assert (out / "mesh.glb").stat().st_size
+    if conditioning:
+        assert result["min_effective_disparity_px"] == conditioning
+        assert result["prefer_conditioned_pairs"] and result["voxel_size"] == .09
+        assert (out / "depth-observations" / "manifest.json").is_file()
+        with np.load(out / "depth-observations" / "view-0000.npz") as data:
+            assert np.max(data["fused_vertex"]) < result["dense_points"]
     with pytest.raises(FileExistsError):
         reconstruct_multiview(source, out)
     (tmp_path / "1.png").write_bytes(b"changed")
