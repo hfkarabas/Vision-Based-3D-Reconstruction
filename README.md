@@ -56,7 +56,7 @@ See [the matching report](docs/TASK01_REPORT.md), [the two-view report](docs/TAS
 
 RANSAC can fit misleading geometry for moving subjects, planar scenes, pure rotation, repeated texture, or small baselines. High match counts are not evidence of usable camera geometry or successful reconstruction. Blur scores are descriptive and do not automatically reject frames. Truncated videos may appear as early decoder EOF; codec support depends on the OpenCV build. Failed runs may leave partial diagnostics. Timing excludes interpreter startup and final JSON/CSV serialization and is not a controlled benchmark. The target i5-11400H/GTX 1650 machine has not been separately tested.
 
-Next stages: broader camera/dataset validation, track refinement and stronger local optimization coverage. Multi-view dense fusion, UV texturing, OBJ/GLB export and adaptive frame selection are later work. An interactive local sparse-reconstruction demo is available below.
+The later dense and desktop workflows below add adaptive MP4 keyframes, multi-view stereo, open surfaces, photographic UVs and OBJ/GLB export. See the [installation guide](Documentation/INSTALLATION.md), [demonstration guide](Documentation/DEMO_GUIDE.md) and [release evaluation](Documentation/FINAL_RELEASE_REPORT.md).
 
 ## Reconstruct two photographs
 
@@ -236,11 +236,11 @@ The dense stage estimates bidirectionally checked stereo depth, requires corrobo
 
 The mesh is an open visible surface with image-derived vertex colors. PLY and GLB preserve those colors. GLB rotates the axes to right/up/back. Use `--obj` to export OBJ geometry with vertex normals and `--target-faces 600000` to request a simplified mesh. Metric georeferencing remains unsupported.
 
-For photographic UVs, select **Photo texture** when running a dense mesh in the desktop. **Open UV GLB** previews the exported asset. The `surface-asset` and `texture-asset` CLI commands can also resume from saved outputs and export an OBJ/MTL bundle. The exporter records the textured area and retains vertex colors in untextured GLB regions. [Surface asset workflow](docs/SURFACE_ASSETS.md) · [AirZoo benchmark results](docs/AIRZOO_SURFACE_VALIDATION.md)
+For photographic UVs, select **Photo GLB + OBJ** when running a dense mesh in the desktop. **Open UV GLB** previews the exported asset. Use F or R to fit and reset the scene. I/J/K/L pan the view. The exporter records the textured area and retains vertex colors in untextured GLB regions. Keep the OBJ, MTL and atlas together. [Surface asset workflow](docs/SURFACE_ASSETS.md) · [AirZoo benchmark results](docs/AIRZOO_SURFACE_VALIDATION.md)
 
 For UAV sequences, **uav-conditioned** is an opt-in desktop **Multi-view** profile and a `dense-sequence --profile uav-conditioned` option. It skips stereo candidates with weak median effective disparity and applies the same 28 px minimum to candidate and corroborating depth. The original **uav** profile is still available. Conditioning can leave gaps where the images provide no usable alternative. [AirZoo geometry experiments](docs/AIRZOO_GEOMETRIC_RECOVERY.md)
 
-Use **uav-recovery** to try bounded alternate stereo witnesses with the same geometric gates. It is opt-in. The desktop accepts up to 80 photos in the UAV profiles and reads the primary photograph from DJI MPO containers stored as JPG. Select **Colored mesh** and **Photo texture** to preview a textured GLB in the desktop. The CLI can also export OBJ with its MTL and atlas.
+Use **uav-recovery** to try bounded alternate stereo witnesses with the same geometric gates. It is opt-in. The desktop accepts up to 80 photos in the UAV profiles and reads the primary photograph from DJI MPO containers stored as JPG.
 
 ```powershell
 .venv/Scripts/python.exe -m vision3d.cli reconstruct-asset --input datasets/uav-photos --profile uav-recovery --obj --output outputs/uav-demo
