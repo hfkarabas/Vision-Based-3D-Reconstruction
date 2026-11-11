@@ -233,9 +233,11 @@ def main(argv=None):
     product_input.add_argument("--input", dest="input_path")
     product_input.add_argument("--images", nargs="+", dest="input_path")
     product_input.add_argument("--sparse-dir", help="Resume from a completed sparse sequence")
+    product_input.add_argument("--dense-dir", help="Resume optimization and texturing from a completed dense mesh")
     product.add_argument("--output", required=True)
     product.add_argument("--camera", help="Use explicit calibration instead of automatic intrinsics")
-    product.add_argument("--profile", choices=("uav", "uav-conditioned", "uav-recovery"), default="uav")
+    product.add_argument("--profile", choices=("uav", "uav-conditioned", "uav-recovery"),
+                         help="Dense profile (default uav for new depth, or the saved profile when resuming)")
     product.add_argument("--max-images", type=int, default=40)
     product.add_argument("--max-dimension", type=int, default=1600)
     product.add_argument("--position-hints", help="Optional SfM station hints")

@@ -192,3 +192,9 @@ First compare surface generation on frozen Rural and Urban probes. Then advance 
 - The optional dense-only `--recover-empty-depth` experiment compares alternate estimates at genuinely empty primary pixels. It requires two camera-disjoint conditioned round trips. Rural-48 gained 307 accepted pixels, 281 fused points and 27 half-meter cells with unchanged common-footprint DSM P95. Rural-40, Urban-40 and Rural-80 recovered no empty pixels. Existing mesh profiles remain unchanged. Saved commands and results are under `mission-iii-d/*-empty-depth*` and `rural48-hole-dsm-v2/`.
 - The existing Urban quality-PnP hypothesis yielded the same 35/40 cameras, 6,066 landmarks and 0.731/0.948 px median/RMS reprojection error. Retained the prior selection and thresholds. `urban-quality-pnp-command.json` reproduces the ablation without repeating COLMAP.
 - Focused geometry checks passed 28 tests and the product-targeted suite passed 60. No previous assets were overwritten.
+
+### End-to-end resume and real inputs
+
+- `5d01d9c` records the validated geometry experiment and independent tests. Original shape and camera defaults are retained.
+- A no-cache CLI run ingested 40 original DJI photos and registered 28. It exported 896,742 dense points and a 437,682-face textured asset in 376.48 s. `production-fresh-command.json`, `production-fresh/workflow.json`, `production-fresh-final-gates.json` and `blender-fresh/` record the arguments and gates.
+- `reconstruct-asset --dense-dir` validates the saved mesh and its profile, then resumes at surface optimization in a fresh directory. The real resume took 36.39 s and produced byte-identical GLB, OBJ, MTL and atlas. `production-resumed/workflow.json` records both reused stages.

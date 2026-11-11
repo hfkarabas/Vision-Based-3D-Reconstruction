@@ -21,13 +21,29 @@ def _save_manifest(path, record):
     temporary.replace(path)
 
 
-def reconstruct_asset(output, input_path=None, sparse_dir=None, camera=None, profile="uav", max_images=40,
+def reconstruct_asset(output, input_path=None, sparse_dir=None, camera=None, profile=None, max_images=40,
                       max_dimension=1600, position_hints=None, feature_cache=None, pair_cache=None,
-                      target_faces=450000, atlas_size=4096, obj=False, stage=lambda _: None):
-    if (input_path is None) == (sparse_dir is None):
-        raise ValueError("Select photographs or a saved sparse sequence")
-    if sparse_dir is not None and any((camera, position_hints, feature_cache, pair_cache)):
-        raise ValueError("Camera and feature options apply to photographs, not saved sparse poses")
+                      target_faces=450000, atlas_size=4096, obj=False, stage=lambda _: None, dense_dir=None):
+    if sum(item is not None for item in (input_path, sparse_dir, dense_dir)) != 1:
+        raise ValueError("Select photographs, a saved sparse sequence or a completed dense mesh")
+    if input_path is None and any((camera, position_hints, feature_cache, pair_cache)):
+        raise ValueError("Camera and feature options apply only to photographs")
+    reused_depth = None
+    if dense_dir is not None:
+        dense_dir = Path(dense_dir).resolve()
+        reused_depth = json.loads((dense_dir / "metrics.json").read_text(encoding="utf-8"))
+        if (reused_depth.get("status") != "success" or (reused_depth.get("mesh") or {}).get("status") != "success"
+                or reused_depth.get("dense_points", 0) < 1):
+            raise ValueError("Resume requires a successful dense cloud and mesh")
+        for name in ("dense.ply", "mesh.ply", "poses.json", "intrinsics.json"):
+            path = dense_dir / name
+            if not path.is_file() or not path.stat().st_size:
+                raise ValueError(f"Resume artifact is missing or empty: {path}")
+        if profile is not None and profile != reused_depth["profile"]:
+            raise ValueError("Requested profile differs from the completed dense mesh")
+        profile = reused_depth["profile"]
+        sparse_dir = reused_depth["source_sparse"]
+    profile = profile or "uav"
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
     saved = Path(sparse_dir).resolve() if sparse_dir is not None else output / "sparse"
@@ -39,11 +55,11 @@ def reconstruct_asset(output, input_path=None, sparse_dir=None, camera=None, pro
     def save():
         _save_manifest(manifest, record)
 
-    def run(name, path, operation):
+    def run(name, path, operation, *, reused=False):
         nonlocal active
         active = name
-        stage(f"Starting {name}")
-        record["stages"][name] = {"status": "running", "directory": str(path)}
+        stage(f"Using completed {name}" if reused else f"Starting {name}")
+        record["stages"][name] = {"status": "running", "directory": str(path), "reused": reused}
         save()
         start = perf_counter()
         result = operation()
@@ -62,14 +78,19 @@ def reconstruct_asset(output, input_path=None, sparse_dir=None, camera=None, pro
                 feature_cache=feature_cache, pair_cache=pair_cache, position_hints=position_hints,
                 bridge_pairs=24 if position_hints is not None else 0))
         else:
-            sparse = run("sparse", saved, lambda: json.loads((saved / "metrics.json").read_text(encoding="utf-8")))
+            sparse = run("sparse", saved, lambda: json.loads((saved / "metrics.json").read_text(encoding="utf-8")),
+                         reused=True)
         if sparse.get("status") != "success" or sparse.get("registered_images", 0) < 3:
             raise ValueError("Sparse reconstruction did not register enough cameras")
         record["registered_images"] = sparse["registered_images"]
         if "input_images" in sparse:
             record["input_images"] = sparse["input_images"]
-        dense, surface, texture = (output / name for name in ("dense", "surface", "texture"))
-        depth = run("dense", dense, lambda: reconstruct_multiview(saved, dense, profile=profile, mesh=True, stage=stage))
+        dense = dense_dir or output / "dense"
+        surface, texture = output / "surface", output / "texture"
+        if reused_depth is None:
+            depth = run("dense", dense, lambda: reconstruct_multiview(saved, dense, profile=profile, mesh=True, stage=stage))
+        else:
+            depth = run("dense", dense, lambda: reused_depth, reused=True)
         if (depth.get("mesh") or {}).get("status") != "success":
             raise ValueError(f"Dense fusion completed but mesh generation failed: {depth.get('mesh')}")
         record["dense_points"] = depth["dense_points"]

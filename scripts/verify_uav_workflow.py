@@ -1,5 +1,6 @@
 """Check saved UAV production geometry, preview and optional Blender imports."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def verify(run, blender_reports):
         raise ValueError("Sparse projection metrics must be finite")
     cloud = o3d.io.read_point_cloud(str(assets["dense_ply"]))
     points = np.asarray(cloud.points)
-    dense = read(run / "dense/metrics.json")
+    dense = read(Path(workflow["stages"]["dense"]["directory"]) / "metrics.json")
     if (not len(points) or len(points) != workflow["dense_points"] or not np.isfinite(points).all()
             or not cloud.has_colors() or dense["checked_samples"] < len(points)):
         raise ValueError("Invalid dense points or depth support")
@@ -64,6 +65,10 @@ def verify(run, blender_reports):
         asset = Path(report["asset"]).resolve()
         if report["status"] != "passed" or asset not in {p.resolve() for p in assets.values()}:
             raise ValueError("Blender report must pass and refer to this workflow's asset")
+        if "asset_sha256" in report:
+            with asset.open("rb") as stream:
+                if hashlib.file_digest(stream, "sha256").hexdigest() != report["asset_sha256"]:
+                    raise ValueError(f"Blender report was generated for different file contents: {asset}")
         independent[asset.suffix] = str(path.resolve())
     return {"status": "passed", "registered_images": len(views), "registered_graph_components": int(components),
             "projection": reprojection, "dense_points": len(points), "supported_samples": dense["checked_samples"],
