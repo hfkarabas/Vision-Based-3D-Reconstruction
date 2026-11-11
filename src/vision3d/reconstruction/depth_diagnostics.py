@@ -4,7 +4,7 @@ import numpy as np
 from .pair import write_json
 
 
-def save_depth_diagnostics(output, maps, accepted, inverse, plans, poses, limit=6000):
+def save_depth_diagnostics(output, maps, accepted, inverse, plans, poses, limit=6000, *, recovery=None):
     folder = output / "depth-observations"
     folder.mkdir()
     checked = {}
@@ -32,6 +32,13 @@ def save_depth_diagnostics(output, maps, accepted, inverse, plans, poses, limit=
                         "disparity_to_depth": plan.disparity_to_depth}
         if depth.witness_bits is not None:
             observations["accepted_witness_bits"] = depth.witness_bits[kept[sample]]
+        if recovery and depth.reference in recovery:
+            votes = []
+            for reference, source, rows in recovery[depth.reference]:
+                matched = np.searchsorted(kept, rows)
+                votes.append(np.column_stack((depth.pixels[rows], fused[matched],
+                                              np.full(len(rows), reference), np.full(len(rows), source))))
+            observations["recovered_yx_vertex_reference_source"] = np.concatenate(votes)
         np.savez_compressed(folder / name, **observations)
         records.append({"reference": depth.reference, "source": depth.source, "file": name,
                         "recentered": depth.recentered, "transposed": depth.transposed,
