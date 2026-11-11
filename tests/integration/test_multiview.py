@@ -40,6 +40,19 @@ def test_voxel_averages_both_geometry_and_color():
     assert np.allclose(rgb[0], [.5, .5, 0])
 
 
+def test_fixed_fusion_grid_survives_removal_of_extreme_sample():
+    points = np.array([[.01, 0, 0], [.16, 0, 0], [.23, 0, 0]])
+    colors = np.zeros_like(points)
+    baseline, _, ids = voxel_fuse(points, colors, .1)
+    fixed, _, fixed_ids = voxel_fuse(points[1:], colors[1:], .1, origin=points[0])
+    adaptive, _, _ = voxel_fuse(points[1:], colors[1:], .1)
+    assert np.array_equal(fixed, baseline[ids[1:]])
+    assert fixed_ids.tolist() == [0, 1]
+    assert len(adaptive) == 1
+    with pytest.raises(ValueError, match="integer range"):
+        voxel_fuse(points, colors, .1, origin=(1e30, 0, 0))
+
+
 @pytest.mark.parametrize(("profile", "common_witnesses", "conditioning"), [
     ("fast", False, None), ("uav", False, None), ("uav", True, None), ("uav-conditioned", False, 8),
 ])
@@ -68,7 +81,8 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_w
     result = reconstruct_multiview(source, out, profile=profile, mesh=True, glb=True, obj=True,
                                    mesh_common_witnesses=common_witnesses, depth_diagnostics=bool(conditioning),
                                    min_effective_disparity=conditioning,
-                                   fusion_voxel_size=.09 if conditioning else None)
+                                   fusion_voxel_size=.09 if conditioning else None,
+                                   fusion_voxel_origin=(0, 0, 0) if conditioning else None)
     assert result["depth_maps"] == 3 and len(result["fused_references"]) == 3
     assert result["checked_samples"] > result["dense_points"] > 1000
     assert result["mesh"]["multi_image_color_vertices"] > 100
@@ -83,6 +97,7 @@ def test_three_view_dense_pipeline_with_mesh_and_glb(tmp_path, profile, common_w
     if conditioning:
         assert result["min_effective_disparity_px"] == conditioning
         assert result["prefer_conditioned_pairs"] and result["voxel_size"] == .09
+        assert result["voxel_origin"] == [0, 0, 0]
         assert (out / "depth-observations" / "manifest.json").is_file()
         with np.load(out / "depth-observations" / "view-0000.npz") as data:
             assert np.max(data["fused_vertex"]) < result["dense_points"]

@@ -201,6 +201,8 @@ def main(argv=None):
                            help="Skip stereo pairs whose median sparse effective disparity is below the specified minimum")
     multiview.add_argument("--fusion-voxel-size", type=float,
                            help="Fix the fusion voxel size in SfM units for controlled comparisons")
+    multiview.add_argument("--fusion-voxel-origin", type=float, nargs=3, metavar=("X", "Y", "Z"),
+                           help="Reuse an exact fusion grid origin with --fusion-voxel-size")
     multiview.add_argument("--mesh-common-witnesses", action="store_true",
                            help="Require all three mesh corners to share the UAV depth witnesses")
     asset = sub.add_parser("surface-asset", help="Validate and optimize a completed dense surface")
