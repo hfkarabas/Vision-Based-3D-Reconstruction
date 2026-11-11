@@ -238,6 +238,8 @@ The mesh is an open visible surface with image-derived vertex colors. PLY and GL
 
 For photographic UVs, select **Photo texture** when running a dense mesh in the desktop. **Open UV GLB** previews the exported asset. The `surface-asset` and `texture-asset` CLI commands can also resume from saved outputs and export an OBJ/MTL bundle. The exporter records the textured area and retains vertex colors in untextured GLB regions. [Surface asset workflow](docs/SURFACE_ASSETS.md) · [AirZoo benchmark results](docs/AIRZOO_SURFACE_VALIDATION.md)
 
+For UAV sequences, **uav-conditioned** is an opt-in desktop **Multi-view** profile and a `dense-sequence --profile uav-conditioned` option. It skips stereo candidates with weak median effective disparity and applies the same 28 px minimum to candidate and corroborating depth. The original **uav** profile is still available. Conditioning can leave gaps where the images provide no usable alternative. [AirZoo geometry experiments](docs/AIRZOO_GEOMETRIC_RECOVERY.md)
+
 Start with **fast** for meshes. Higher profiles use more memory, and optional CLI `--target-faces` simplification can take substantially longer and may retain more faces than requested. See the [evaluation](docs/MULTIVIEW_EVALUATION.md) and [engineering report](docs/MULTIVIEW_COMPLETION_REPORT.md) for measurements and limitations.
 
 ### Difficult small photo sets

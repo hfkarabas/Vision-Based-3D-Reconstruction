@@ -188,13 +188,19 @@ def main(argv=None):
     multiview = sub.add_parser("dense-sequence", help="Fuse independently checked multi-view stereo depth")
     multiview.add_argument("--sparse-dir", required=True)
     multiview.add_argument("--output", required=True)
-    multiview.add_argument("--profile", choices=("fast", "balanced", "high", "uav"), default="balanced")
+    multiview.add_argument("--profile", choices=("fast", "balanced", "high", "uav", "uav-conditioned"), default="balanced")
     multiview.add_argument("--mesh", action="store_true")
     multiview.add_argument("--object-masks", help="JSON mapping registered filenames to normalized object polygons")
     multiview.add_argument("--glb", action="store_true", help="Also export a validated vertex-colored GLB mesh")
     multiview.add_argument("--obj", action="store_true", help="Also export validated OBJ geometry and normals")
     multiview.add_argument("--target-faces", type=int)
     multiview.add_argument("--depth-diagnostics", action="store_true", help="Save rectified depth maps and sampled fusion provenance")
+    multiview.add_argument("--min-effective-disparity", type=float,
+                           help="UAV only. Require this much focal-length × baseline / depth in pixels")
+    multiview.add_argument("--prefer-conditioned-pairs", action="store_true",
+                           help="Skip stereo pairs whose median sparse effective disparity is below the specified minimum")
+    multiview.add_argument("--fusion-voxel-size", type=float,
+                           help="Fix the fusion voxel size in SfM units for controlled comparisons")
     multiview.add_argument("--mesh-common-witnesses", action="store_true",
                            help="Require all three mesh corners to share the UAV depth witnesses")
     asset = sub.add_parser("surface-asset", help="Validate and optimize a completed dense surface")

@@ -1,6 +1,6 @@
 """Bounded CPU multi-view stereo with independent third-view depth checks."""
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from itertools import combinations
 import json
 from pathlib import Path
@@ -33,6 +33,8 @@ class DenseProfile:
     preflight_pairs: bool = False
     recenter_pairs: bool = False
     recentered_witnesses: int = 1
+    min_effective_disparity: float | None = None
+    prefer_conditioned_pairs: bool = False
 
 
 PROFILES = {
@@ -43,6 +45,7 @@ PROFILES = {
                         max_sparse_error_px=2.5, max_return_px=1.5, clean_surface=True,
                         preflight_pairs=True, recenter_pairs=True, recentered_witnesses=2),
 }
+PROFILES["uav-conditioned"] = replace(PROFILES["uav"], min_effective_disparity=28, prefer_conditioned_pairs=True)
 
 
 @dataclass
@@ -61,6 +64,7 @@ class DepthMap:
     recentered: bool = False
     witness_bits: np.ndarray | None = None
     overlap_pixels: int = 0
+    focal_baseline: float = 0
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,7 @@ class StereoPlan:
     count: int
     depth_bounds: tuple
     recentered: bool
+    median_effective_disparity: float
 
 
 def relative_pose(a, b):
@@ -144,7 +149,9 @@ def plan_depth(a, b, camera_a, camera_b, sparse, *, recenter=False):
     z = z[np.isfinite(z) & (z > 0)]
     minimum, count = disparity_range(offset - p2[axis, 3] / z, size[axis])
     near, far = np.percentile(z, [2, 98])
-    return StereoPlan((r1, r2), (p1, p2), q, bool(vertical), minimum, count, (near * .65, far * 1.55), recenter)
+    effective_disparity = abs(p2[axis, 3]) / np.median(z)
+    return StereoPlan((r1, r2), (p1, p2), q, bool(vertical), minimum, count, (near * .65, far * 1.55),
+                      recenter, float(effective_disparity))
 
 
 def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse, object_masks=(None, None), *, plan=None):
@@ -184,7 +191,8 @@ def make_depth(reference, source, a, b, camera_a, camera_b, left, right, sparse,
     xyz = (local - a.translation) @ a.rotation
     return DepthMap(reference, source, r1 @ a.rotation, r1 @ a.translation, projection,
                     depth, images[0], pixels, xyz, colors, vertical, plan.recentered,
-                    overlap_pixels=int(np.count_nonzero(masks[0] & masks[1])))
+                    overlap_pixels=int(np.count_nonzero(masks[0] & masks[1])),
+                    focal_baseline=abs(float(p2[int(vertical), 3])))
 
 
 def corroborate(xyz, rgb, witness, tolerance):
@@ -278,7 +286,8 @@ def rasterize_polygon(vertices, size):
 
 def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, target_faces=None,
                           glb=False, stage=lambda name: None, object_masks=None, obj=False, mesh_common_witnesses=False,
-                          depth_diagnostics=False):
+                          depth_diagnostics=False, min_effective_disparity=None, prefer_conditioned_pairs=False,
+                          fusion_voxel_size=None):
     """Densify one sequence result without editing any sparse artifacts."""
     start = perf_counter()
     sparse_dir, output = Path(sparse_dir), Path(output)
@@ -293,8 +302,19 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     if obj and not mesh:
         raise ValueError("OBJ export requires --mesh")
     settings = PROFILES[profile]
+    if min_effective_disparity is None:
+        min_effective_disparity = settings.min_effective_disparity
+    prefer_conditioned_pairs = prefer_conditioned_pairs or settings.prefer_conditioned_pairs
     if mesh_common_witnesses and (not mesh or settings.max_return_px is None):
         raise ValueError("Common mesh witnesses require the UAV profile and --mesh")
+    if min_effective_disparity is not None and (
+            settings.max_return_px is None or not np.isfinite(min_effective_disparity)
+            or min_effective_disparity <= 0):
+        raise ValueError("Minimum effective disparity must be positive, finite and used with the UAV profile")
+    if prefer_conditioned_pairs and min_effective_disparity is None:
+        raise ValueError("Conditioned pair selection requires a minimum effective disparity")
+    if fusion_voxel_size is not None and (not np.isfinite(fusion_voxel_size) or fusion_voxel_size <= 0):
+        raise ValueError("Fusion voxel size must be positive and finite")
 
     def read(name):
         return json.loads((sparse_dir / name).read_text(encoding="utf-8"))
@@ -383,6 +403,11 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                     if settings.recenter_pairs and not recenter and isinstance(exc, DisparitySearchLimit):
                         candidates.append((source, xyz, True))
                     continue
+                if prefer_conditioned_pairs and plan.median_effective_disparity < min_effective_disparity:
+                    attempts.append({"reference": reference, "source": source, "preflight": True,
+                                     "recentered": recenter, "reason": "weak median effective disparity",
+                                     "median_effective_disparity_px": plan.median_effective_disparity})
+                    continue
             depth_attempts += 1
             left, object_a = image(reference)
             right, object_b = image(source)
@@ -398,7 +423,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
                 plans[reference] = plan
             used_pixels += a.width * a.height
             attempts.append({"reference": reference, "source": source, "depth_pixels": len(depth.xyz),
-                             "recentered": recenter})
+                             "recentered": recenter, "median_effective_disparity_px":
+                             plan.median_effective_disparity if plan is not None else None})
             break
     depth_seconds = perf_counter() - depth_start
     stage("Checking third-view depth and fusing world voxels")
@@ -408,18 +434,23 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     else:
         accepted, support = supported_samples(maps, settings.relative_depth, settings.max_return_px,
                                               settings.recentered_witnesses,
-                                              keep_witnesses=mesh_common_witnesses or depth_diagnostics)
+                                              keep_witnesses=mesh_common_witnesses or depth_diagnostics,
+                                              min_effective_disparity=min_effective_disparity)
     sample_count = sum(int(mask.sum()) for _, mask, _ in accepted)
     if len(accepted) < 2 or sample_count < 100:
         reason = f"Too little independent third-view support ({len(maps)} depth maps, {sample_count} samples)"
         output.mkdir(parents=True, exist_ok=False)
         write_json(output / "metrics.json", {"status": "rejected", "reason": reason, "pair_attempts": attempts,
-                                             "depth_support": support, "settings": asdict(settings)})
+                                             "depth_support": support, "settings": asdict(settings),
+                                             "min_effective_disparity_px": min_effective_disparity,
+                                             "prefer_conditioned_pairs": prefer_conditioned_pairs})
         raise ValueError(reason)
     points = np.concatenate([depth.xyz[mask] for depth, mask, _ in accepted])
     colors = np.concatenate([rgb for _, _, rgb in accepted])
-    voxel = float(np.median([np.median(d.depth[d.depth > 0]) / np.linalg.norm(d.intrinsic[0, :2])
-                            for d, _, _ in accepted]))
+    voxel = fusion_voxel_size
+    if voxel is None:
+        voxel = float(np.median([np.median(d.depth[d.depth > 0]) / np.linalg.norm(d.intrinsic[0, :2])
+                                for d, _, _ in accepted]))
     xyz, colors, inverse = voxel_fuse(points, colors, voxel)
     fusion_seconds = perf_counter() - fusion_start
     surface, mesh_info = None, None
@@ -517,6 +548,8 @@ def reconstruct_multiview(sparse_dir, output, profile="balanced", mesh=False, ta
     metrics = {"status": "success", "representation": "dense_multiview", "source_sparse": str(sparse_dir.resolve()),
                "profile": profile, "settings": asdict(settings), "object_masks": bool(polygons), "registered_images": len(poses), "dense_points": len(xyz),
                "depth_maps": len(maps), "fused_references": [d.reference for d, _, _ in accepted],
+               "min_effective_disparity_px": min_effective_disparity,
+               "prefer_conditioned_pairs": prefer_conditioned_pairs,
                "mesh_common_witnesses": face_evidence if mesh_common_witnesses else None,
                "eligible_references": sorted(neighbors), "planned_references": selected, "depth_support": support,
                "raw_depth_samples": sum(len(d.xyz) for d in maps), "checked_samples": sample_count,
