@@ -1,0 +1,72 @@
+{
+  "tennis_court": {
+    "center_local_enu": [
+      -140,
+      -82.5
+    ],
+    "width_m": 52,
+    "direction": [
+      1,
+      -0.4,
+      0.62
+    ],
+    "z_below_m": 7,
+    "z_above_m": 14
+  },
+  "road_spikes": {
+    "center_local_enu": [
+      83,
+      25.5
+    ],
+    "width_m": 42,
+    "direction": [
+      0.35,
+      -0.1,
+      1
+    ],
+    "z_below_m": 18,
+    "z_above_m": 8
+  },
+  "vegetation": {
+    "center_local_enu": [
+      -150,
+      114.5
+    ],
+    "width_m": 39,
+    "direction": [
+      0,
+      0.55,
+      1
+    ],
+    "z_below_m": 12,
+    "z_above_m": 8
+  },
+  "local_shops": {
+    "center_local_enu": [
+      16,
+      -167.5
+    ],
+    "width_m": 33,
+    "direction": [
+      1,
+      -1,
+      0.72
+    ],
+    "z_below_m": 7,
+    "z_above_m": 14
+  },
+  "building_boundaries": {
+    "center_local_enu": [
+      -200,
+      275.5
+    ],
+    "width_m": 86,
+    "direction": [
+      1,
+      -1,
+      0.8
+    ],
+    "z_below_m": 7,
+    "z_above_m": 48
+  }
+}
