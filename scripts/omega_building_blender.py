@@ -69,7 +69,7 @@ def material(name, color):
 
 
 def apply_photo(terrain, grid, photo_path):
-    mat = material("Airborne orthophoto", (1, 1, 1, 1))
+    mat = material(grid.get("texture_label", "Airborne orthophoto"), (1, 1, 1, 1))
     texture = mat.node_tree.nodes.new("ShaderNodeTexImage")
     texture.image = bpy.data.images.load(str(photo_path))
     texture.image.pack()
@@ -86,7 +86,7 @@ def apply_photo(terrain, grid, photo_path):
         mesh = obj.data
         indices = np.empty(len(mesh.loops), dtype=np.int32)
         mesh.loops.foreach_get("vertex_index", indices)
-        uv = mesh.uv_layers.active or mesh.uv_layers.new(name="Orthophoto EPSG grid")
+        uv = mesh.uv_layers.active or mesh.uv_layers.new(name="Projected RGB grid")
         coords = (world[indices, :2] + origin[:2] - [west, south]) / [east - west, north - south]
         if coords.min() < -0.002 or coords.max() > 1.002:
             raise ValueError("Terrain coordinates do not match the orthophoto and ENU origin.")
@@ -337,6 +337,8 @@ def main():
     parser.add_argument("--max-burial", type=float, default=4)
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--visual-review", type=Path)
+    parser.add_argument("--allow-terrain-only", action="store_true",
+                        help="Save verified terrain when no candidate supports a building volume.")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1 :])
     out = args.output.resolve()
     report_dir = out / "reports"
@@ -380,7 +382,7 @@ def main():
             results.append(extrude(feature, grid["origin_enu"], query, white, buildings, args.max_burial))
     write(report_dir / "blender_buildings.json", results)
     built = [record for record in results if record["status"] == "built"]
-    if not built:
+    if not built and not args.allow_terrain_only:
         raise ValueError("No detected polygon passed the terrain and mesh geometry checks.")
     if args.validate_only:
         print(f"{len(built)} buildings passed native Blender and foundation checks.")
