@@ -277,8 +277,9 @@ def buildings(args, settings, measured):
         "--projected-assessment", out / "building_footprints_projected.json",
     ])
     shutil.copyfile(ortho / "supported_photo.png", out / "terrain_photo.png")
-    save(out / "grid.json", dict(crs=args.crs, bounds=args.extent, origin_enu=read(ground_dir / "complete.json")["origin"],
-                                 texture_label="COLMAP camera-textured orthophoto"))
+    terrain = read(ground_dir / "complete.json")
+    save(out / "grid.json", dict(crs=args.crs, bounds=args.extent, origin_enu=terrain["origin"],
+                                 texture_label=terrain.get("texture_label", "COLMAP camera-textured orthophoto")))
     measured(out, "blender_assembly", [
         args.blender, "-b", "-t", 4, "--python-exit-code", 1, "--python", SCRIPTS / "omega_building_blender.py",
         "--", "--output", out, "--height-grid", ground_dir / "terrain.npz", "--allow-terrain-only",

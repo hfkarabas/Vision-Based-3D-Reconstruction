@@ -1,0 +1,15 @@
+{
+  "crs": "EPSG:32617",
+  "sample_m": 0.25,
+  "extent": [333031, 3102867, 333282, 3103066],
+  "footprint_plane_z_m": -69,
+  "description": "Manually reviewed regions on the camera-derived full-site orthophoto. These geometries are used exclusively for evaluation and rendering. Court polygons cover visible playing surfaces, not their surrounds. The stream region follows the visible low channel and its immediately adjacent pixels.",
+  "regions": {
+    "tennis": {"type": "Polygon", "coordinates": [[[333184, 3102932], [333195, 3102932], [333195, 3102954], [333184, 3102954], [333184, 3102932]]]},
+    "basketball": {"type": "Polygon", "coordinates": [[[333156, 3102892], [333170, 3102892], [333171, 3102916], [333156, 3102916], [333156, 3102892]]]},
+    "parking": {"type": "Polygon", "coordinates": [[[333179, 3102873], [333207, 3102873], [333207, 3102903], [333188, 3102905], [333182, 3102897], [333179, 3102873]]]},
+    "stream": {"type": "Polygon", "coordinates": [[[333117, 3102947], [333127, 3102940], [333135, 3102930], [333136, 3102919], [333132, 3102910], [333126, 3102896], [333122, 3102886], [333118, 3102888], [333122, 3102899], [333128, 3102913], [333131, 3102920], [333130, 3102929], [333124, 3102937], [333114, 3102944], [333117, 3102947]]]},
+    "housing": {"type": "Polygon", "coordinates": [[[333086, 3103008], [333198, 3103008], [333198, 3103024], [333086, 3103024], [333086, 3103008]]]},
+    "east_boundary": {"type": "Polygon", "coordinates": [[[333256, 3102906], [333281, 3102906], [333281, 3102960], [333256, 3102960], [333256, 3102906]]]}
+  }
+}

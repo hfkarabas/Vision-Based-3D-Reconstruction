@@ -14,9 +14,13 @@ from omega_building_blender import meshes, terrain_query
 
 
 def main(args):
-    if args.scene.suffix.lower() == ".glb":
+    suffix = args.scene.suffix.lower()
+    if suffix == ".glb":
         bpy.ops.wm.read_factory_settings(use_empty=True)
         bpy.ops.import_scene.gltf(filepath=str(args.scene.resolve()))
+    elif suffix == ".ply":
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        bpy.ops.wm.ply_import(filepath=str(args.scene.resolve()))
     else:
         bpy.ops.wm.open_mainfile(filepath=str(args.scene.resolve()))
     terrain = [obj for obj in meshes() if not obj.get("building_id")]
