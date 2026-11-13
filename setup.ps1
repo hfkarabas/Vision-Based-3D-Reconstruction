@@ -21,6 +21,17 @@ $Repo = $PSScriptRoot
 $Tools = if ($env:UAV3D_TOOLS) { $env:UAV3D_TOOLS } else { Join-Path $Repo ".tools" }
 $Lock = Get-Content (Join-Path $Repo "tools.lock.json") -Raw | ConvertFrom-Json
 
+function Repair-OdmPaths($odmDir) {
+    # Same edits as ODM's winpostinstall.bat: the install embeds absolute paths, so a copied
+    # or moved install must have them rewritten (done here without relying on cmd's cwd lookup).
+    $venv = Join-Path $odmDir "venv"
+    $sbbin = Join-Path $odmDir "SuperBuild\install\bin"
+    $cv2 = Join-Path $venv "Lib\site-packages\cv2"
+    Set-Content (Join-Path $venv "pyvenv.cfg") "home = $venv\Scripts`r`ninclude-system-site-packages = false" -Encoding ascii
+    Set-Content (Join-Path $cv2 "config.py") "BINARIES_PATHS = [r`"$sbbin`"] + BINARIES_PATHS" -Encoding ascii
+    Set-Content (Join-Path $cv2 "config-3.12.py") "PYTHON_EXTENSIONS_PATHS = [r'''$venv\lib\site-packages\cv2\python-3.12'''] + PYTHON_EXTENSIONS_PATHS" -Encoding ascii
+}
+
 function Get-Verified($name, $entry) {
     $cache = Join-Path $Tools "_downloads"
     New-Item -ItemType Directory -Force $cache | Out-Null
@@ -68,6 +79,7 @@ if (-not $SkipTools) {
             if ($p.ExitCode -ne 0) { throw "ODM installer exited with $($p.ExitCode)" }
         }
     }
+    Repair-OdmPaths $odmDir
 
     # 2b. Roofer
     $rooferDir = Join-Path $Tools "roofer"

@@ -11,8 +11,10 @@ _GPS_IFD = 0x8825
 
 
 def find_images(folder: Path) -> list[Path]:
-    """Images directly in ``folder``, else in ``folder/images`` (the ODM dataset convention)."""
-    for candidate in (folder, folder / "images"):
+    """Images in ``folder/images`` (the ODM dataset convention) when present, else in ``folder``.
+
+    The subfolder wins because dataset roots often hold previews or products (e.g. a dsm.tif)."""
+    for candidate in (folder / "images", folder):
         if candidate.is_dir():
             files = sorted(p for p in candidate.iterdir()
                            if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES)

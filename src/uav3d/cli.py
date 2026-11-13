@@ -75,6 +75,8 @@ def cmd_run(args) -> int:
         print(f"ok: {out / 'run.json'}")
         return 0
     except Exception as exc:  # fail loud: record the stage and reason (protocol G2)
+        if isinstance(exc, odm.OdmError) and rec.data["stages"]:
+            rec.data["stages"][-1].update(exc.result)
         rec.finish("failed", f"{stage}: {type(exc).__name__}: {exc}")
         print(f"FAILED at {stage}: {exc}", file=sys.stderr)
         return 1
