@@ -1,6 +1,16 @@
 # Temizlik planı (2026-11-13)
 
-Durum: **taslak, onay bekliyor.** İndirmeler (UseGeo, Ziegeleipark) bitmeden hiçbir şey taşınmaz ya da silinmez.
+Durum: **uygulandı (2026-11-13), `claude/cleanup` dalı.** Sonuç:
+- 27,5 GB silindi.
+- 54,2 GB `C:\projects\_archive\vision3d-2026-11-13\` klasörüne taşındı.
+- `outputs/` 91,8 GB'tan 10,7 GB'a indi.
+- 77 ölü betik/çalıştırıcı, 4 ölü test ve 11 config arşivlendi.
+- Testler: 216 geçti, 9 atlandı. Atlananlar GIS çalışma ortamı gerektiriyor; o ortamda pytest olmadığı için bu testler doğrulanmadı.
+
+Plandan sapmalar:
+- ODM kurulumu ve bina modeli, arşivlenen Sheffield/terrain-validation klasörlerinin içindeydi. İkisi geri alındı: `outputs/mission-omega/tools/odm` ve `building-recovery/terrain-validation/checkpoints`.
+- `tests/unit/test_airzoo_diagnostics.py` betikleri adıyla dinamik yüklediği için grafikte görünmedi. Yalnızca ölü kodu test ettiği için o da arşivlendi.
+- `configs/sceaux.json` kaldı, çünkü eski demo onu okuyor.
 
 ## 1. Bulgular
 
