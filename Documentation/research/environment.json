@@ -1,0 +1,20 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+  "logical_cpus": 14,
+  "ram": {
+    "total": 16782508032,
+    "available": 6672576512,
+    "percent": 60.2,
+    "used": 10109931520,
+    "free": 6672576512
+  },
+  "colmap": "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+  "gpu": "name, memory.total [MiB], driver_version\nNVIDIA GeForce RTX 5070, 12227 MiB, 617.42\n",
+  "version": "COLMAP 4.2.1 (Commit bd1fcf6 on 2026-09-29 with CUDA, boost hash maps)\nUsage:\n  colmap [command] [options]\nDocumentation:\n  https://colmap.github.io/\nExample usage:\n  colmap help [ -h, --help ]\n  colmap gui\n  colmap gui -h [ --help ]\n  colmap automatic_reconstructor -h [ --help ]\n  colmap automatic_reconstructor --image_path IMAGES --workspace_path WORKSPACE\n  colmap feature_extractor --image_path IMAGES --database_path DATABASE\n  colmap exhaustive_matcher --database_path DATABASE\n  colmap mapper --image_path IMAGES --database_path DATABASE --output_path MODEL\n  ...\nAvailable commands:\n  help\n  version\n  gui\n  automatic_reconstructor\n  bundle_adjuster\n  color_extractor\n  database_cleaner\n  database_creator\n  database_merger\n  advancing_front_mesher\n  delaunay_mesher\n  exhaustive_matcher\n  feature_extractor\n  feature_importer\n  geometric_verifier\n  global_mapper\n  guided_geometric_verifier\n  hierarchical_mapper\n  image_deleter\n  image_filterer\n  image_rectifier\n  image_registrator\n  image_undistorter\n  image_undistorter_standalone\n  mapper\n  matches_importer\n  mesh_simplifier\n  mesh_texturer\n  model_aligner\n  model_analyzer\n  model_clusterer\n  model_comparer\n  model_converter\n  model_cropper\n  model_merger\n  model_orientation_aligner\n  model_splitter\n  model_transformer\n  patch_match_stereo\n  point_filtering\n  point_triangulator\n  pose_prior_mapper\n  poisson_mesher\n  project_generator\n  rig_configurator\n  rotation_averager\n  sequential_matcher\n  spatial_matcher\n  stereo_fusion\n  transitive_matcher\n  view_graph_calibrator\n  vocab_tree_builder\n  vocab_tree_matcher\n  vocab_tree_retriever\n\n",
+  "cpu_model": "Intel(R) Core(TM) Ultra 5 245KF",
+  "nvidia_cuda_driver_umd": "13.4 (driver-reported UMD, not a verified installed toolkit version)",
+  "dense_jobs_concurrent": true,
+  "git_commit_status": "blocked: .git/index.lock permission denied",
+  "colmap_executable_sha256": "9418a14c93d4a5eec5eb33ebf48a917403b5faa7ab5d2232f23e50c206d9e427"
+}

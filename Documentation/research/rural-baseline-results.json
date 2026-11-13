@@ -1,0 +1,1344 @@
+{
+  "scene": "rural",
+  "alignment": {
+    "meters_per_sfm_unit": 52.30125171061517,
+    "rotation": [
+      [
+        -0.8928091487999088,
+        -0.4122837692694495,
+        0.18142193201528375
+      ],
+      [
+        -0.450351481219457,
+        0.809274602795839,
+        -0.37717126167442594
+      ],
+      [
+        0.008681427453123744,
+        -0.41844558889611033,
+        -0.9082003754407741
+      ]
+    ],
+    "translation": [
+      -131.07331950022999,
+      -86.08744129024099,
+      100.42860000338706
+    ],
+    "projected_origin_easting_northing": [
+      404073.0390210793,
+      3130182.393236294
+    ],
+    "projected_crs": "EPSG:4547",
+    "local_gps_origin_lon_lat": [
+      113.022215253,
+      28.282911864
+    ],
+    "camera_position_residual_m": {
+      "p0": 0.029976925138964515,
+      "p5": 0.059071393909017826,
+      "p50": 0.18546669013804268,
+      "p95": 0.3170178690622602,
+      "p100": 0.5759064496274553
+    },
+    "caveat": "In-sample Sim3 camera fit to XMP RTK positions projected to EPSG:4547; horizontal datum realization and vertical reference unverified; not independent ground surface accuracy",
+    "positions_used_for_estimation": false
+  },
+  "meshes": {
+    "delaunay": {
+      "summary": {
+        "vertices": 236103,
+        "triangles": 473578,
+        "components": 15,
+        "largest_component_triangles": 473464,
+        "area": 720.2532758386649,
+        "boundary_edges": 90,
+        "nonmanifold_edges": 527,
+        "winding_conflicts": 0,
+        "degenerate_triangles": 0,
+        "invalid_vertex_normals": null,
+        "vertex_normals_stored": false,
+        "largest_component_triangle_share": 0.9997592793584161,
+        "ppk_scaled_surface_area_m2": 1970195.8859882038,
+        "supported_surface_area_m2": null
+      },
+      "largest_components": [
+        {
+          "triangles": 473464,
+          "extent": [
+            34.379974365234375,
+            29.11587142944336,
+            13.428669452667236
+          ]
+        },
+        {
+          "triangles": 34,
+          "extent": [
+            0.1047062873840332,
+            0.03641539812088013,
+            0.03759491443634033
+          ]
+        },
+        {
+          "triangles": 14,
+          "extent": [
+            0.10708332061767578,
+            0.08026087284088135,
+            0.06382274627685547
+          ]
+        },
+        {
+          "triangles": 10,
+          "extent": [
+            0.007319450378417969,
+            0.011535406112670898,
+            0.006250858306884766
+          ]
+        },
+        {
+          "triangles": 6,
+          "extent": [
+            0.006920337677001953,
+            0.018743515014648438,
+            0.010784149169921875
+          ]
+        },
+        {
+          "triangles": 6,
+          "extent": [
+            0.06224203109741211,
+            0.07803654670715332,
+            0.13866132497787476
+          ]
+        },
+        {
+          "triangles": 6,
+          "extent": [
+            0.11248111724853516,
+            0.07096278667449951,
+            0.06476211547851562
+          ]
+        },
+        {
+          "triangles": 6,
+          "extent": [
+            0.04118967056274414,
+            0.11675834655761719,
+            0.023518085479736328
+          ]
+        }
+      ],
+      "bounded_intersection_probes": [
+        {
+          "cell": 156,
+          "triangles": 12000,
+          "intersection_detected": false
+        },
+        {
+          "cell": 298,
+          "triangles": 12000,
+          "intersection_detected": false
+        },
+        {
+          "cell": 362,
+          "triangles": 12000,
+          "intersection_detected": false
+        },
+        {
+          "cell": 99,
+          "triangles": 12000,
+          "intersection_detected": false
+        },
+        {
+          "cell": 291,
+          "triangles": 12000,
+          "intersection_detected": false
+        },
+        {
+          "cell": 227,
+          "triangles": 12000,
+          "intersection_detected": false
+        },
+        {
+          "cell": 234,
+          "triangles": 12000,
+          "intersection_detected": false
+        },
+        {
+          "cell": 106,
+          "triangles": 12000,
+          "intersection_detected": false
+        }
+      ],
+      "scope": "At most eight 12000-triangle neighborhoods. A negative probe does not certify the mesh.",
+      "normal_caveat": "PLY omits vertex normals; absent normals are not counted as invalid computed normals.",
+      "support_caveat": "Total area is not certified supported area; visibility/independent depth support must be measured separately."
+    },
+    "poisson": {
+      "summary": {
+        "vertices": 206292,
+        "triangles": 404968,
+        "components": 12,
+        "largest_component_triangles": 404740,
+        "area": 188.9461237045523,
+        "boundary_edges": 7578,
+        "nonmanifold_edges": 0,
+        "winding_conflicts": 0,
+        "degenerate_triangles": 10,
+        "invalid_vertex_normals": null,
+        "vertex_normals_stored": false,
+        "largest_component_triangle_share": 0.999436992552498,
+        "ppk_scaled_surface_area_m2": 516847.1815177315,
+        "supported_surface_area_m2": null
+      },
+      "largest_components": [
+        {
+          "triangles": 404740,
+          "extent": [
+            17.921024322509766,
+            15.608073711395264,
+            7.226947784423828
+          ]
+        },
+        {
+          "triangles": 100,
+          "extent": [
+            0.149993896484375,
+            0.12584877014160156,
+            0.12399101257324219
+          ]
+        },
+        {
+          "triangles": 24,
+          "extent": [
+            0.07957649230957031,
+            0.07542991638183594,
+            0.05512428283691406
+          ]
+        },
+        {
+          "triangles": 24,
+          "extent": [
+            0.09510231018066406,
+            0.028934478759765625,
+            0.027540206909179688
+          ]
+        },
+        {
+          "triangles": 16,
+          "extent": [
+            0.04781532287597656,
+            0.06084632873535156,
+            0.053462982177734375
+          ]
+        },
+        {
+          "triangles": 16,
+          "extent": [
+            0.047125816345214844,
+            0.03457450866699219,
+            0.034836769104003906
+          ]
+        },
+        {
+          "triangles": 8,
+          "extent": [
+            0.027479171752929688,
+            0.0051326751708984375,
+            0.019364356994628906
+          ]
+        },
+        {
+          "triangles": 8,
+          "extent": [
+            0.05575370788574219,
+            0.052143096923828125,
+            0.05478382110595703
+          ]
+        }
+      ],
+      "bounded_intersection_probes": [
+        {
+          "cell": 21,
+          "triangles": 10671,
+          "intersection_detected": true
+        },
+        {
+          "cell": 376,
+          "triangles": 10143,
+          "intersection_detected": true
+        },
+        {
+          "cell": 312,
+          "triangles": 9124,
+          "intersection_detected": false
+        },
+        {
+          "cell": 412,
+          "triangles": 8850,
+          "intersection_detected": false
+        },
+        {
+          "cell": 298,
+          "triangles": 8829,
+          "intersection_detected": true
+        },
+        {
+          "cell": 234,
+          "triangles": 8785,
+          "intersection_detected": false
+        },
+        {
+          "cell": 71,
+          "triangles": 8695,
+          "intersection_detected": true
+        },
+        {
+          "cell": 341,
+          "triangles": 8526,
+          "intersection_detected": false
+        }
+      ],
+      "scope": "At most eight 12000-triangle neighborhoods. A negative probe does not certify the mesh.",
+      "normal_caveat": "PLY omits vertex normals; absent normals are not counted as invalid computed normals.",
+      "support_caveat": "Total area is not certified supported area; visibility/independent depth support must be measured separately."
+    }
+  },
+  "valid_depth_fraction": {
+    "p0": 0.034752263374485594,
+    "p5": 0.15022222222222223,
+    "p50": 0.5406921810699589,
+    "p95": 0.8856749794238683,
+    "p100": 0.9535703703703704
+  },
+  "dense": {
+    "points": 1577923,
+    "finite": true,
+    "bounds_sfm": [
+      [
+        -13.982864379882812,
+        -18.072731018066406,
+        -3.2549490928649902
+      ],
+      [
+        20.397109985351562,
+        12.373285293579102,
+        23.438556671142578
+      ]
+    ],
+    "approximate_metric_bounds": [
+      [
+        -1152.7999363955241,
+        -1195.2639943122722,
+        -1095.5841601560505
+      ],
+      [
+        697.1948919125508,
+        470.41423946839933,
+        62.21749657621152
+      ]
+    ],
+    "half_meter_occupied_xy_cells": 858315,
+    "occupied_xy_area_m2": 214578.75,
+    "points_per_occupied_half_meter_cell": {
+      "p0": 1.0,
+      "p5": 1.0,
+      "p50": 1.0,
+      "p95": 5.0,
+      "p100": 38.0
+    },
+    "scope": "PPK-fitted scale; occupied cells are not independently verified valid completeness",
+    "distinct_supporting_images": {
+      "p0": 2.0,
+      "p5": 3.0,
+      "p50": 5.0,
+      "p95": 16.0,
+      "p100": 38.0
+    },
+    "view_support_caveat": "Distinct images, not independent physical camera stations or independent accuracy evidence"
+  },
+  "dsm_reference_agreement": {
+    "reference_samples": 1553324,
+    "total_points": 1577923,
+    "reference_overlap_fraction": 0.9844105193979681,
+    "fitted_vertical_offset_m": -0.8574061986214971,
+    "footprint_mask": {
+      "source": "C:\\projects\\Vision-Based-3D-Reconstruction\\datasets\\airzoo\\rural\\Scene2\\dom_dsm\\DOM.tif",
+      "source_size": [
+        21615,
+        17949
+      ],
+      "mask_size": [
+        1200,
+        996
+      ],
+      "world_file": [
+        0.05642,
+        0.0,
+        0.0,
+        0.05642,
+        403345.28493,
+        3129549.69867
+      ],
+      "definition": "Nearest RGB samples, any nonblack RGB, eroded by one mask pixel; alpha ignored",
+      "caveat": "Approximate conservative reference footprint, not ground-truth geometry or sensor coverage"
+    },
+    "raw_signed_residual_m": {
+      "p0": -704.5129839881348,
+      "p5": -1.684015941052838,
+      "p50": -0.8574061986214971,
+      "p95": -0.04132340603620185,
+      "p100": 47.29211682309873
+    },
+    "offset_adjusted_absolute_residual_m": {
+      "p0": 7.881693164790704e-08,
+      "p5": 0.015324283078238923,
+      "p50": 0.17795633472297823,
+      "p95": 1.687822909945564,
+      "p100": 703.6555777895134
+    },
+    "offset_adjusted_rmse_m": 6.593077340938286,
+    "warning": "Height-map reference agreement only, in-sample PPK similarity and fitted DSM vertical offset. Not absolute geospatial accuracy, not independent 3D ground truth; CRS conflict and DSM lineage unresolved."
+  },
+  "dsm_upper_envelope_diagnostic": {
+    "projected_grid_size_m": 1,
+    "grid_origin": "EPSG4547 easting/northing zero",
+    "results": {
+      "minimum_1_points": {
+        "cells": 393868,
+        "fitted_vertical_offset_m": -0.753037335440645,
+        "raw_signed_residual_m": {
+          "p0": -704.5129839881348,
+          "p5": -1.5649548267167845,
+          "p50": -0.753037335440645,
+          "p95": 1.2934939410126232,
+          "p100": 47.10420006742246
+        },
+        "offset_adjusted_absolute_residual_m": {
+          "p0": 4.814889180693172e-07,
+          "p5": 0.020809852054474477,
+          "p50": 0.2574004171286788,
+          "p95": 2.5547825677323472,
+          "p100": 703.7599466526941
+        }
+      },
+      "minimum_3_points": {
+        "cells": 167431,
+        "fitted_vertical_offset_m": -0.7306226703168335,
+        "raw_signed_residual_m": {
+          "p0": -61.80860410122372,
+          "p5": -1.2430546352990604,
+          "p50": -0.7306226703168335,
+          "p95": 0.497488851096918,
+          "p100": 44.67823988654214
+        },
+        "offset_adjusted_absolute_residual_m": {
+          "p0": 0.0,
+          "p5": 0.015572257670129375,
+          "p50": 0.19185350437132342,
+          "p95": 1.467921541768078,
+          "p100": 61.07798143090689
+        }
+      }
+    },
+    "caveat": "Highest fused point per occupied cell, not interpolated or hole-filled. Same conservative input mask. Sensitive to high outliers and sampling density; minimum-3 cells exclude sparse areas. Each variant fits its own offset. Not full 3D accuracy or comparable to all-point native DSM scores."
+  },
+  "depth_map_count": 190,
+  "stage_measurements": {
+    "analyze-0": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "model_analyzer",
+        "--path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\sfm-2000\\models\\0"
+      ],
+      "returncode": 0,
+      "seconds": 0.5060391426086426,
+      "peak_process_rss_bytes": 5226496,
+      "peak_sampling_seconds": 0.5
+    },
+    "features": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "feature_extractor",
+        "--database_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\sfm-2000\\database.db",
+        "--image_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\datasets\\airzoo\\rural\\Scene2\\query",
+        "--ImageReader.single_camera",
+        "1",
+        "--ImageReader.camera_model",
+        "SIMPLE_RADIAL",
+        "--FeatureExtraction.max_image_size",
+        "2000",
+        "--FeatureExtraction.num_threads",
+        "4",
+        "--FeatureExtraction.use_gpu",
+        "1"
+      ],
+      "returncode": 0,
+      "seconds": 21.029149532318115,
+      "peak_process_rss_bytes": 335290368,
+      "peak_sampling_seconds": 0.5
+    },
+    "mapping": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "mapper",
+        "--database_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\sfm-2000\\database.db",
+        "--image_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\datasets\\airzoo\\rural\\Scene2\\query",
+        "--output_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\sfm-2000\\models",
+        "--Mapper.num_threads",
+        "4"
+      ],
+      "returncode": 0,
+      "seconds": 188.6745002269745,
+      "peak_process_rss_bytes": 619433984,
+      "peak_sampling_seconds": 0.5
+    },
+    "matching": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "exhaustive_matcher",
+        "--database_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\sfm-2000\\database.db",
+        "--FeatureMatching.num_threads",
+        "4",
+        "--FeatureMatching.use_gpu",
+        "1"
+      ],
+      "returncode": 0,
+      "seconds": 73.0781786441803,
+      "peak_process_rss_bytes": 405221376,
+      "peak_sampling_seconds": 0.5
+    },
+    "delaunay": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "delaunay_mesher",
+        "--input_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace",
+        "--output_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\delaunay.ply",
+        "--DelaunayMeshing.num_threads",
+        "4"
+      ],
+      "returncode": 0,
+      "seconds": 62.663540840148926,
+      "peak_process_rss_bytes": 1687199744,
+      "peak_sampling_seconds": 0.5,
+      "gpu_scope": "Whole GPU, includes unrelated applications",
+      "sampled_whole_gpu_peak_mib": 1348.0
+    },
+    "fusion": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "stereo_fusion",
+        "--workspace_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace",
+        "--input_type",
+        "geometric",
+        "--output_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace\\fused.ply",
+        "--StereoFusion.num_threads",
+        "4",
+        "--StereoFusion.max_image_size",
+        "900",
+        "--StereoFusion.cache_size",
+        "2"
+      ],
+      "returncode": 0,
+      "seconds": 41.94385528564453,
+      "peak_process_rss_bytes": 2826186752,
+      "peak_sampling_seconds": 0.5,
+      "gpu_scope": "Whole GPU, includes unrelated applications",
+      "sampled_whole_gpu_peak_mib": 1621.0
+    },
+    "patchmatch": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "patch_match_stereo",
+        "--workspace_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace",
+        "--PatchMatchStereo.gpu_index",
+        "0",
+        "--PatchMatchStereo.geom_consistency",
+        "1",
+        "--PatchMatchStereo.max_image_size",
+        "900",
+        "--PatchMatchStereo.cache_size",
+        "2"
+      ],
+      "returncode": 0,
+      "seconds": 2625.8382613658905,
+      "peak_process_rss_bytes": 1074061312,
+      "peak_sampling_seconds": 0.5,
+      "gpu_scope": "Whole GPU, includes unrelated applications",
+      "sampled_whole_gpu_peak_mib": 1924.0,
+      "native_log_elapsed_minutes": 43.753,
+      "timing_caveat": "Shared GPU with other scene. Urban observer queue inflates marker wall time; native elapsed is preferable, still not standalone throughput."
+    },
+    "poisson": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "poisson_mesher",
+        "--input_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace\\fused.ply",
+        "--output_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\poisson.ply",
+        "--PoissonMeshing.depth",
+        "10",
+        "--PoissonMeshing.num_threads",
+        "4"
+      ],
+      "returncode": 0,
+      "seconds": 7.084324359893799,
+      "peak_process_rss_bytes": 357851136,
+      "peak_sampling_seconds": 0.5,
+      "gpu_scope": "Whole GPU, includes unrelated applications",
+      "sampled_whole_gpu_peak_mib": 1348.0
+    },
+    "texture-delaunay": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "mesh_texturer",
+        "--workspace_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace",
+        "--input_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\delaunay.ply",
+        "--output_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\textured-delaunay",
+        "--MeshTextureMapping.num_threads",
+        "4"
+      ],
+      "returncode": 0,
+      "seconds": 18.726736783981323,
+      "peak_process_rss_bytes": 1253388288,
+      "peak_sampling_seconds": 0.5,
+      "gpu_scope": "Whole GPU, includes unrelated applications",
+      "sampled_whole_gpu_peak_mib": 1348.0
+    },
+    "texture-poisson": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "mesh_texturer",
+        "--workspace_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace",
+        "--input_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\poisson.ply",
+        "--output_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\textured-poisson",
+        "--MeshTextureMapping.num_threads",
+        "4"
+      ],
+      "returncode": 0,
+      "seconds": 16.3067626953125,
+      "peak_process_rss_bytes": 1185533952,
+      "peak_sampling_seconds": 0.5,
+      "gpu_scope": "Whole GPU, includes unrelated applications",
+      "sampled_whole_gpu_peak_mib": 1348.0
+    },
+    "undistort": {
+      "command": [
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\airzoo-benchmark\\geometric-root-cause-recovery\\colmap-cuda\\bin\\colmap.exe",
+        "image_undistorter",
+        "--image_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\datasets\\airzoo\\rural\\Scene2\\query",
+        "--input_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\sfm-2000\\models\\0",
+        "--output_path",
+        "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\workspace",
+        "--output_type",
+        "COLMAP",
+        "--max_image_size",
+        "900",
+        "--num_patch_match_src_images",
+        "6",
+        "--num_threads",
+        "4"
+      ],
+      "returncode": 0,
+      "seconds": 42.96313261985779,
+      "peak_process_rss_bytes": 431775744,
+      "peak_sampling_seconds": 0.5,
+      "gpu_scope": "Whole GPU, includes unrelated applications",
+      "sampled_whole_gpu_peak_mib": 1348.0
+    }
+  },
+  "assets": {
+    "asset": {
+      "conversion": {
+        "software": "COLMAP reconstruction and texture; project format adapter",
+        "source": "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\textured-delaunay\\mesh.ply",
+        "source_sha256": "2b697512034d919c78d508bc528abda3d4e78d8285679d87001331196aff73b4",
+        "vertices": 236101,
+        "triangles": 473578,
+        "source_uv_bounds": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.9996011257171631,
+            0.9995976090431213
+          ]
+        ],
+        "source_vertices": 236103,
+        "unreferenced_vertices_omitted": 2,
+        "bounds_local_fitted_m": [
+          [
+            -929.8094226285783,
+            -1065.178202734049,
+            -16.950799618485007
+          ],
+          [
+            920.1854056794966,
+            600.5000310466227,
+            19.781589911797454
+          ]
+        ],
+        "obj_axes": "X=east, Y=north, Z=up; Blender OBJ importer must use forward Y, up Z",
+        "uv_assigned_faces": 442565,
+        "uv_assigned_face_fraction": 0.9345134275663143,
+        "uv_assigned_area_fraction": 0.7576123850370918,
+        "alignment": {
+          "meters_per_sfm_unit": 52.30125171061517,
+          "rotation": [
+            [
+              -0.8928091487999088,
+              -0.4122837692694495,
+              0.18142193201528375
+            ],
+            [
+              -0.450351481219457,
+              0.809274602795839,
+              -0.37717126167442594
+            ],
+            [
+              0.008681427453123744,
+              -0.41844558889611033,
+              -0.9082003754407741
+            ]
+          ],
+          "translation": [
+            -131.07331950022999,
+            -86.08744129024099,
+            100.42860000338706
+          ],
+          "projected_origin_easting_northing": [
+            404073.0390210793,
+            3130182.393236294
+          ],
+          "projected_crs": "EPSG:4547",
+          "local_gps_origin_lon_lat": [
+            113.022215253,
+            28.282911864
+          ],
+          "camera_position_residual_m": {
+            "p0": 0.029976925138964515,
+            "p5": 0.059071393909017826,
+            "p50": 0.18546669013804268,
+            "p95": 0.3170178690622602,
+            "p100": 0.5759064496274553
+          },
+          "caveat": "In-sample Sim3 camera fit to XMP RTK positions projected to EPSG:4547; horizontal datum realization and vertical reference unverified; not independent ground surface accuracy",
+          "positions_used_for_estimation": false
+        },
+        "asset_origin_in_alignment_frame": [
+          -222.9905137669458,
+          -130.08579157822336,
+          14.601607539337664
+        ],
+        "units": "PPK-fitted metres, local ENU-like axes",
+        "accuracy_caveat": "Scale/registration estimated from RTK cameras; not survey-certified surface accuracy",
+        "photographic_support_caveat": "UV atlas binding does not certify source support for every triangle; inspect untextured/fallback regions",
+        "runtime_seconds": 2.2270172999997158
+      },
+      "blender_validation": {
+        "obj_triangles": 473578,
+        "glb_triangles": 473578,
+        "bounds_match": true,
+        "finite_geometry": true,
+        "uv_and_image_binding": true,
+        "materials": [
+          {
+            "name": "photographic.001",
+            "image": "texture",
+            "size": [
+              8192,
+              5169
+            ],
+            "packed": true
+          }
+        ],
+        "blender": "5.3.0"
+      },
+      "review": {
+        "blender": "5.3.0",
+        "obj_triangles": 473578,
+        "glb_triangles": 473578,
+        "finite_geometry": true,
+        "uv_and_image_binding": true,
+        "materials": [
+          {
+            "name": "photographic.001",
+            "image": "texture",
+            "size": [
+              8192,
+              5169
+            ],
+            "packed": true
+          }
+        ],
+        "bounds_local_fitted_m": [
+          [
+            -929.8094482421875,
+            -1065.17822265625,
+            -16.9507999420166
+          ],
+          [
+            920.1854248046875,
+            600.5000610351562,
+            19.78158950805664
+          ]
+        ],
+        "framing": {
+          "top": {
+            "camera": [
+              -4.81195068359375,
+              -232.339111328125,
+              4980.6982421875
+            ],
+            "ortho_scale": 2071.994384765625
+          },
+          "oblique": {
+            "camera": [
+              3036.360595703125,
+              -3300.28076171875,
+              2477.99267578125
+            ],
+            "ortho_scale": 1914.103759765625
+          },
+          "side": {
+            "camera": [
+              -4.81201171875,
+              -5211.62158203125,
+              1.415353775024414
+            ],
+            "ortho_scale": 2071.994384765625
+          }
+        },
+        "framing_scope": "Full union of Delaunay and Poisson mesh bounds, consistent per-view camera across methods and modes",
+        "user_acceptance": "pending",
+        "runtime_seconds": 47.34386869997252,
+        "glb_sha256": "0fda8906238f6d7bced3704ebcb88e3982f14516b37c3829f893397125c559e3"
+      },
+      "files": [
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset\\textured.obj",
+          "bytes": 67834510,
+          "sha256": "4f4e3923a6cbec2dd616ef14ad102f777d9590f38125c184668a60cd85c08051"
+        },
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset\\textured.mtl",
+          "bytes": 61,
+          "sha256": "62d70ce8942f592e91f3cf4f7e24457d4195cb06b98d013241dfb521cea7b0c7"
+        },
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset\\textured.glb",
+          "bytes": 87449852,
+          "sha256": "0fda8906238f6d7bced3704ebcb88e3982f14516b37c3829f893397125c559e3"
+        },
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset\\texture.png",
+          "bytes": 36308805,
+          "sha256": "7205f3c0d34e43872d8fbb50974e2d18fe94160e75cadcd0dcee7818cd884f70"
+        }
+      ]
+    },
+    "asset-poisson": {
+      "conversion": {
+        "software": "COLMAP reconstruction and texture; project format adapter",
+        "method": "poisson",
+        "source": "C:\\projects\\Vision-Based-3D-Reconstruction\\outputs\\research-baseline\\rural\\dense-900\\textured-poisson\\mesh.ply",
+        "source_sha256": "b8b69b63c4da31081450c17ec1d8928949aedd08ac4e56f91433a2dd78a0d91b",
+        "vertices": 206292,
+        "triangles": 404968,
+        "source_uv_bounds": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.9994258880615234,
+            0.9995476007461548
+          ]
+        ],
+        "source_vertices": 206292,
+        "unreferenced_vertices_omitted": 0,
+        "bounds_local_fitted_m": [
+          [
+            -472.03319153775385,
+            -349.7178549795404,
+            -14.241742939551408
+          ],
+          [
+            513.0000706435422,
+            343.8024455921566,
+            17.052810313670683
+          ]
+        ],
+        "obj_axes": "X=east, Y=north, Z=up; Blender OBJ importer must use forward Y, up Z",
+        "uv_assigned_faces": 399879,
+        "uv_assigned_face_fraction": 0.9874335749985184,
+        "uv_assigned_area_fraction": 0.9896647250641427,
+        "alignment": {
+          "meters_per_sfm_unit": 52.30125171061517,
+          "rotation": [
+            [
+              -0.8928091487999088,
+              -0.4122837692694495,
+              0.18142193201528375
+            ],
+            [
+              -0.450351481219457,
+              0.809274602795839,
+              -0.37717126167442594
+            ],
+            [
+              0.008681427453123744,
+              -0.41844558889611033,
+              -0.9082003754407741
+            ]
+          ],
+          "translation": [
+            -131.07331950022999,
+            -86.08744129024099,
+            100.42860000338706
+          ],
+          "projected_origin_easting_northing": [
+            404073.0390210793,
+            3130182.393236294
+          ],
+          "projected_crs": "EPSG:4547",
+          "local_gps_origin_lon_lat": [
+            113.022215253,
+            28.282911864
+          ],
+          "camera_position_residual_m": {
+            "p0": 0.029976925138964515,
+            "p5": 0.059071393909017826,
+            "p50": 0.18546669013804268,
+            "p95": 0.3170178690622602,
+            "p100": 0.5759064496274553
+          },
+          "caveat": "In-sample Sim3 camera fit to XMP RTK positions projected to EPSG:4547; horizontal datum realization and vertical reference unverified; not independent ground surface accuracy",
+          "positions_used_for_estimation": false
+        },
+        "asset_origin_in_alignment_frame": [
+          -227.9937971384575,
+          -134.3261583186582,
+          14.449600913346238
+        ],
+        "units": "PPK-fitted metres, local ENU-like axes",
+        "accuracy_caveat": "Scale/registration estimated from RTK cameras; not survey-certified surface accuracy",
+        "photographic_support_caveat": "UV atlas binding does not certify source support for every triangle; inspect untextured/fallback regions",
+        "runtime_seconds": 1.7863461000088137
+      },
+      "blender_validation": {
+        "obj_triangles": 404968,
+        "glb_triangles": 404968,
+        "bounds_match": true,
+        "finite_geometry": true,
+        "uv_and_image_binding": true,
+        "materials": [
+          {
+            "name": "photographic.001",
+            "image": "texture",
+            "size": [
+              8192,
+              4472
+            ],
+            "packed": true
+          }
+        ],
+        "blender": "5.3.0"
+      },
+      "review": {
+        "blender": "5.3.0",
+        "obj_triangles": 404968,
+        "glb_triangles": 404968,
+        "finite_geometry": true,
+        "uv_and_image_binding": true,
+        "materials": [
+          {
+            "name": "photographic.001",
+            "image": "texture",
+            "size": [
+              8192,
+              4472
+            ],
+            "packed": true
+          }
+        ],
+        "bounds_local_fitted_m": [
+          [
+            -472.033203125,
+            -349.7178649902344,
+            -14.241743087768555
+          ],
+          [
+            513.0000610351562,
+            343.8024597167969,
+            17.052810668945312
+          ]
+        ],
+        "framing": {
+          "top": {
+            "camera": [
+              20.483428955078125,
+              -2.957733154296875,
+              2411.584228515625
+            ],
+            "ortho_scale": 1103.2373046875
+          },
+          "oblique": {
+            "camera": [
+              1492.5550537109375,
+              -1506.769287109375,
+              1176.6470947265625
+            ],
+            "ortho_scale": 914.7700805664062
+          },
+          "side": {
+            "camera": [
+              20.483428955078125,
+              -2413.136474609375,
+              1.4055047035217285
+            ],
+            "ortho_scale": 1103.2373046875
+          }
+        },
+        "framing_scope": "Full selected mesh bounds, consistent per-view camera across modes; separate from raw comparison union",
+        "user_acceptance": "pending",
+        "runtime_seconds": 28.96101530001033,
+        "glb_sha256": "55fb3589298e2c2acb7bcda0d78ad7cf4b5ad2d791433b6bbee5c91f23d5b838"
+      },
+      "files": [
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset-poisson\\textured.obj",
+          "bytes": 59233051,
+          "sha256": "cdfa31e9e61cc5f24887c7e8af822a07f44067b475a99b2905a42650d30511fb"
+        },
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset-poisson\\textured.mtl",
+          "bytes": 61,
+          "sha256": "62d70ce8942f592e91f3cf4f7e24457d4195cb06b98d013241dfb521cea7b0c7"
+        },
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset-poisson\\textured.glb",
+          "bytes": 74455120,
+          "sha256": "55fb3589298e2c2acb7bcda0d78ad7cf4b5ad2d791433b6bbee5c91f23d5b838"
+        },
+        {
+          "path": "outputs\\research-baseline\\rural\\dense-900\\asset-poisson\\texture.png",
+          "bytes": 31118068,
+          "sha256": "65bf950c4cf1f7bf5272361c4f5ef05fee4a0a29dd0209e0771620834c6a515b"
+        }
+      ]
+    }
+  },
+  "sfm": {
+    "input_count": 190,
+    "database_images": 190,
+    "verified_edges": 2914,
+    "verified_graph_component_sizes": [
+      190
+    ],
+    "models": [
+      {
+        "id": "0",
+        "registered": 190,
+        "ratio": 1.0,
+        "points": 63234,
+        "mean_reprojection_error_px": 1.3390251794591788,
+        "point_mean_error_px": {
+          "p0": 0.0006496358045574544,
+          "p5": 0.5470963566263467,
+          "p50": 1.338534911926358,
+          "p95": 2.131116394255516,
+          "p100": 3.8045539550568885
+        },
+        "track_length": {
+          "p0": 2.0,
+          "p5": 3.0,
+          "p50": 5.0,
+          "p95": 10.0,
+          "p100": 25.0
+        },
+        "max_triangulation_angle_deg_sampled": {
+          "p0": 1.509017334393922,
+          "p5": 2.074348613564214,
+          "p50": 9.237192442086823,
+          "p95": 52.25046499838668,
+          "p100": 145.19406254092078
+        },
+        "registered_graph_components": [
+          190
+        ],
+        "diagnostic_ppk_similarity": {
+          "meters_per_sfm_unit": 52.30125171061517,
+          "rotation": [
+            [
+              -0.8928091487999088,
+              -0.4122837692694495,
+              0.18142193201528375
+            ],
+            [
+              -0.450351481219457,
+              0.809274602795839,
+              -0.37717126167442594
+            ],
+            [
+              0.008681427453123744,
+              -0.41844558889611033,
+              -0.9082003754407741
+            ]
+          ],
+          "translation": [
+            -131.07331950022999,
+            -86.08744129024099,
+            100.42860000338706
+          ],
+          "projected_origin_easting_northing": [
+            404073.0390210793,
+            3130182.393236294
+          ],
+          "projected_crs": "EPSG:4547",
+          "local_gps_origin_lon_lat": [
+            113.022215253,
+            28.282911864
+          ],
+          "camera_position_residual_m": {
+            "p0": 0.029976925138964515,
+            "p5": 0.059071393909017826,
+            "p50": 0.18546669013804268,
+            "p95": 0.3170178690622602,
+            "p100": 0.5759064496274553
+          },
+          "caveat": "In-sample Sim3 camera fit to XMP RTK positions projected to EPSG:4547; horizontal datum realization and vertical reference unverified; not independent ground surface accuracy",
+          "positions_used_for_estimation": false
+        },
+        "cameras": [
+          {
+            "id": 1,
+            "model": "SIMPLE_RADIAL",
+            "width": 4032,
+            "height": 3024,
+            "params": [
+              2852.13458135652,
+              2016.0,
+              1512.0,
+              0.029846758909407845
+            ]
+          }
+        ],
+        "image_names": [
+          "DJI_20251016115745_0109_V.JPG",
+          "DJI_20251016115952_0173_V.JPG",
+          "DJI_20251016115850_0149_V.JPG",
+          "DJI_20251016115744_0108_V.JPG",
+          "DJI_20251016115951_0172_V.JPG",
+          "DJI_20251016115744_0107_V.JPG",
+          "DJI_20251016115950_0171_V.JPG",
+          "DJI_20251016115852_0150_V.JPG",
+          "DJI_20251016115746_0110_V.JPG",
+          "DJI_20251016115953_0174_V.JPG",
+          "DJI_20251016115835_0135_V.JPG",
+          "DJI_20251016115747_0111_V.JPG",
+          "DJI_20251016115954_0175_V.JPG",
+          "DJI_20251016115837_0137_V.JPG",
+          "DJI_20251016115955_0176_V.JPG",
+          "DJI_20251016115836_0136_V.JPG",
+          "DJI_20251016115956_0177_V.JPG",
+          "DJI_20251016115838_0138_V.JPG",
+          "DJI_20251016115957_0178_V.JPG",
+          "DJI_20251016115834_0134_V.JPG",
+          "DJI_20251016115743_0106_V.JPG",
+          "DJI_20251016115943_0170_V.JPG",
+          "DJI_20251016120017_0187_V.JPG",
+          "DJI_20251016115812_0123_V.JPG",
+          "DJI_20251016120019_0188_V.JPG",
+          "DJI_20251016115813_0124_V.JPG",
+          "DJI_20251016120021_0189_V.JPG",
+          "DJI_20251016115814_0125_V.JPG",
+          "DJI_20251016120022_0190_V.JPG",
+          "DJI_20251016115815_0126_V.JPG",
+          "DJI_20251016115839_0139_V.JPG",
+          "DJI_20251016120023_0191_V.JPG",
+          "DJI_20251016115816_0127_V.JPG",
+          "DJI_20251016115641_0076_V.JPG",
+          "DJI_20251016115840_0140_V.JPG",
+          "DJI_20251016115817_0128_V.JPG",
+          "DJI_20251016115818_0129_V.JPG",
+          "DJI_20251016120014_0184_V.JPG",
+          "DJI_20251016120013_0183_V.JPG",
+          "DJI_20251016120012_0182_V.JPG",
+          "DJI_20251016120011_0181_V.JPG",
+          "DJI_20251016120010_0180_V.JPG",
+          "DJI_20251016120009_0179_V.JPG",
+          "DJI_20251016120015_0185_V.JPG",
+          "DJI_20251016115935_0161_V.JPG",
+          "DJI_20251016115936_0162_V.JPG",
+          "DJI_20251016120016_0186_V.JPG",
+          "DJI_20251016115642_0077_V.JPG",
+          "DJI_20251016115841_0141_V.JPG",
+          "DJI_20251016115819_0130_V.JPG",
+          "DJI_20251016115720_0099_V.JPG",
+          "DJI_20251016115937_0163_V.JPG",
+          "DJI_20251016115833_0133_V.JPG",
+          "DJI_20251016115849_0148_V.JPG",
+          "DJI_20251016115913_0156_V.JPG",
+          "DJI_20251016115914_0157_V.JPG",
+          "DJI_20251016115915_0158_V.JPG",
+          "DJI_20251016115912_0155_V.JPG",
+          "DJI_20251016115942_0169_V.JPG",
+          "DJI_20251016115721_0100_V.JPG",
+          "DJI_20251016115938_0164_V.JPG",
+          "DJI_20251016115643_0078_V.JPG",
+          "DJI_20251016115643_0079_V.JPG",
+          "DJI_20251016115722_0101_V.JPG",
+          "DJI_20251016115742_0105_V.JPG",
+          "DJI_20251016115719_0098_V.JPG",
+          "DJI_20251016115723_0102_V.JPG",
+          "DJI_20251016115718_0097_V.JPG",
+          "DJI_20251016115724_0103_V.JPG",
+          "DJI_20251016115748_0112_V.JPG",
+          "DJI_20251016115749_0113_V.JPG",
+          "DJI_20251016115750_0114_V.JPG",
+          "DJI_20251016115751_0115_V.JPG",
+          "DJI_20251016115717_0096_V.JPG",
+          "DJI_20251016115716_0095_V.JPG",
+          "DJI_20251016115713_0094_V.JPG",
+          "DJI_20251016115820_0131_V.JPG",
+          "DJI_20251016115644_0080_V.JPG",
+          "DJI_20251016115645_0081_V.JPG",
+          "DJI_20251016115646_0082_V.JPG",
+          "DJI_20251016115647_0083_V.JPG",
+          "DJI_20251016115650_0084_V.JPG",
+          "DJI_20251016115712_0093_V.JPG",
+          "DJI_20251016115712_0092_V.JPG",
+          "DJI_20251016115711_0091_V.JPG",
+          "DJI_20251016115710_0090_V.JPG",
+          "DJI_20251016115709_0089_V.JPG",
+          "DJI_20251016115640_0075_V.JPG",
+          "DJI_20251016115843_0142_V.JPG",
+          "DJI_20251016115832_0132_V.JPG",
+          "DJI_20251016115848_0147_V.JPG",
+          "DJI_20251016115847_0146_V.JPG",
+          "DJI_20251016115846_0145_V.JPG",
+          "DJI_20251016115845_0144_V.JPG",
+          "DJI_20251016115754_0116_V.JPG",
+          "DJI_20251016115708_0088_V.JPG",
+          "DJI_20251016115756_0117_V.JPG",
+          "DJI_20251016115707_0087_V.JPG",
+          "DJI_20251016115757_0118_V.JPG",
+          "DJI_20251016115759_0119_V.JPG",
+          "DJI_20251016115800_0120_V.JPG",
+          "DJI_20251016115725_0104_V.JPG",
+          "DJI_20251016115801_0121_V.JPG",
+          "DJI_20251016115706_0086_V.JPG",
+          "DJI_20251016115705_0085_V.JPG",
+          "DJI_20251016115802_0122_V.JPG",
+          "DJI_20251016115844_0143_V.JPG",
+          "DJI_20251016115639_0074_V.JPG",
+          "DJI_20251016115910_0153_V.JPG",
+          "DJI_20251016115909_0152_V.JPG",
+          "DJI_20251016115908_0151_V.JPG",
+          "DJI_20251016115911_0154_V.JPG",
+          "DJI_20251016115916_0159_V.JPG",
+          "DJI_20251016115618_0065_V.JPG",
+          "DJI_20251016115617_0064_V.JPG",
+          "DJI_20251016115619_0066_V.JPG",
+          "DJI_20251016115527_0032_V.JPG",
+          "DJI_20251016115550_0047_V.JPG",
+          "DJI_20251016115526_0031_V.JPG",
+          "DJI_20251016115549_0046_V.JPG",
+          "DJI_20251016115525_0030_V.JPG",
+          "DJI_20251016115548_0045_V.JPG",
+          "DJI_20251016115524_0029_V.JPG",
+          "DJI_20251016115547_0044_V.JPG",
+          "DJI_20251016115551_0048_V.JPG",
+          "DJI_20251016115528_0033_V.JPG",
+          "DJI_20251016115551_0049_V.JPG",
+          "DJI_20251016115529_0034_V.JPG",
+          "DJI_20251016115552_0050_V.JPG",
+          "DJI_20251016115529_0035_V.JPG",
+          "DJI_20251016115554_0051_V.JPG",
+          "DJI_20251016115530_0036_V.JPG",
+          "DJI_20251016115555_0052_V.JPG",
+          "DJI_20251016115532_0037_V.JPG",
+          "DJI_20251016115556_0053_V.JPG",
+          "DJI_20251016115541_0038_V.JPG",
+          "DJI_20251016115546_0043_V.JPG",
+          "DJI_20251016115523_0028_V.JPG",
+          "DJI_20251016115545_0042_V.JPG",
+          "DJI_20251016115522_0027_V.JPG",
+          "DJI_20251016115544_0041_V.JPG",
+          "DJI_20251016115520_0026_V.JPG",
+          "DJI_20251016115542_0039_V.JPG",
+          "DJI_20251016115543_0040_V.JPG",
+          "DJI_20251016115519_0025_V.JPG",
+          "DJI_20251016115428_0001_V.JPG",
+          "DJI_20251016115433_0005_V.JPG",
+          "DJI_20251016115434_0006_V.JPG",
+          "DJI_20251016115435_0007_V.JPG",
+          "DJI_20251016115620_0067_V.JPG",
+          "DJI_20251016115621_0068_V.JPG",
+          "DJI_20251016115622_0069_V.JPG",
+          "DJI_20251016115623_0070_V.JPG",
+          "DJI_20251016115624_0071_V.JPG",
+          "DJI_20251016115625_0072_V.JPG",
+          "DJI_20251016115607_0055_V.JPG",
+          "DJI_20251016115609_0056_V.JPG",
+          "DJI_20251016115610_0057_V.JPG",
+          "DJI_20251016115436_0008_V.JPG",
+          "DJI_20251016115625_0073_V.JPG",
+          "DJI_20251016115505_0021_V.JPG",
+          "DJI_20251016115504_0020_V.JPG",
+          "DJI_20251016115506_0022_V.JPG",
+          "DJI_20251016115432_0004_V.JPG",
+          "DJI_20251016115507_0023_V.JPG",
+          "DJI_20251016115508_0024_V.JPG",
+          "DJI_20251016115438_0009_V.JPG",
+          "DJI_20251016115439_0010_V.JPG",
+          "DJI_20251016115429_0003_V.JPG",
+          "DJI_20251016115503_0019_V.JPG",
+          "DJI_20251016115502_0018_V.JPG",
+          "DJI_20251016115440_0011_V.JPG",
+          "DJI_20251016115501_0017_V.JPG",
+          "DJI_20251016115441_0012_V.JPG",
+          "DJI_20251016115500_0016_V.JPG",
+          "DJI_20251016115458_0015_V.JPG",
+          "DJI_20251016115443_0014_V.JPG",
+          "DJI_20251016115442_0013_V.JPG",
+          "DJI_20251016115614_0062_V.JPG",
+          "DJI_20251016115613_0061_V.JPG",
+          "DJI_20251016115612_0060_V.JPG",
+          "DJI_20251016115615_0063_V.JPG",
+          "DJI_20251016115612_0059_V.JPG",
+          "DJI_20251016115611_0058_V.JPG",
+          "DJI_20251016115605_0054_V.JPG",
+          "DJI_20251016115941_0168_V.JPG",
+          "DJI_20251016115939_0165_V.JPG",
+          "DJI_20251016115918_0160_V.JPG",
+          "DJI_20251016115940_0166_V.JPG",
+          "DJI_20251016115940_0167_V.JPG"
+        ],
+        "summary": "Reconstruction:\n\tnum_rigs = 1\n\tnum_cameras = 1\n\tnum_frames = 190\n\tnum_reg_frames = 190\n\tnum_images = 190\n\tnum_points3D = 63234\n\tnum_observations = 340503\n\tmean_track_length = 5.38481\n\tmean_observations_per_image = 1792.12\n\tmean_reprojection_error = 1.33903"
+      }
+    ]
+  }
+}
