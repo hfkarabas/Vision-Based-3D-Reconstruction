@@ -67,11 +67,12 @@ def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out:
     s = rec.stage("buildings:footprints")
     metric_gsd = gsd["gsd_m"] if gsd and gsd.get("metric") else None
     gpkg = bdir / "roofprints.gpkg"
-    s.update(footprints.prepare(prods["dsm"], metric_gsd, cfg, gpkg))
+    s.update(footprints.prepare(prods["dsm"], prods["point_cloud"], metric_gsd, cfg, gpkg))
     rec.save()
     if not s["kept"]:
         # Not a failure: an explicit, reasoned "no buildings" outcome (protocol G1).
-        rec.set("buildings", {"status": "none", "reason": "no OSM roofprints covered by the reconstruction"})
+        rec.set("buildings", {"status": "none",
+                              "reason": "no OSM or point-cloud roofprints covered by the reconstruction"})
         return
     s = rec.stage("buildings:roofer")
     s.update(buildings.run(tools.roofer(), Path(prods["point_cloud"]), gpkg, bdir / "roofer",

@@ -29,7 +29,8 @@ def run(roofer: Path, point_cloud: Path, roofprints: Path, out_dir: Path, dsm_pa
     rcfg = cfg["roofer"]
     out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [str(roofer), *rcfg["lods"], "--bld-class", str(rcfg["building_class"]),
-           "--grnd-class", str(rcfg["ground_class"]), "-j", str(os.cpu_count() or 1)]
+           "--grnd-class", str(rcfg["ground_class"]), "--id-attribute", "fp_id",
+           "-j", str(os.cpu_count() or 1)]
     if srs := srs_of(dsm_path):
         cmd += ["--srs", srs]
     cmd += [str(point_cloud), str(roofprints), str(out_dir)]
@@ -41,24 +42,50 @@ def run(roofer: Path, point_cloud: Path, roofprints: Path, out_dir: Path, dsm_pa
     result["command"] = cmd
     if result["returncode"] != 0:
         raise BuildingError(f"Roofer exited with {result['returncode']}; see {log}")
-    result["summary"] = summarise(out_dir)
+    result["summary"] = summarise(out_dir, rcfg)
     return result
 
 
-def summarise(out_dir: Path) -> dict:
-    """Count buildings and the LoDs/extrusion modes Roofer actually produced."""
+def _assess(attrs: dict, rcfg: dict) -> dict:
+    """Reference-free per-building quality from Roofer's own attributes.
+
+    height: 70th-percentile roof height above Roofer's ground estimate (building points only);
+    rmse: LoD2.2 fit error. Below min_roof_height_m -> not a building (excluded from export);
+    rmse above low_confidence_rmse_m -> kept but flagged (trees merged into a roofprint, etc.)."""
+    ground = attrs.get("rf_h_ground")
+    h70 = attrs.get("rf_h_roof_70p")
+    height = round(h70 - ground, 2) if h70 is not None and ground is not None else None
+    rmse = attrs.get("rf_rmse_lod22")
+    if attrs.get("rf_extrusion_mode") == "skip":
+        status = "skipped"
+    elif height is None or height < rcfg["min_roof_height_m"]:
+        status = "too_low"
+    elif rmse is not None and rmse > rcfg["low_confidence_rmse_m"]:
+        status = "low_confidence"
+    else:
+        status = "ok"
+    return {"height_m": height, "rmse_lod22_m": None if rmse is None else round(rmse, 3),
+            "roof_planes": attrs.get("rf_roof_planes"), "status": status}
+
+
+def summarise(out_dir: Path, rcfg: dict) -> dict:
+    """Count buildings, LoDs and extrusion modes; assess each building (see _assess)."""
     files = sorted(out_dir.rglob("*.city.jsonl"))
-    buildings, lods, modes = 0, Counter(), Counter()
+    if not files:
+        raise BuildingError(f"Roofer produced no CityJSONSeq output in {out_dir}")
+    lods, modes, per_building = Counter(), Counter(), {}
     for f in files:
         for line in f.read_text(encoding="utf-8").splitlines():
             obj = json.loads(line)
-            for co in obj.get("CityObjects", {}).values():
+            for key, co in obj.get("CityObjects", {}).items():
+                attrs = co.get("attributes", {})
                 if co.get("type") == "Building":
-                    buildings += 1
-                    modes[str(co.get("attributes", {}).get("rf_extrusion_mode", "?"))] += 1
+                    modes[str(attrs.get("rf_extrusion_mode", "?"))] += 1
+                    per_building[key] = {"osm_id": attrs.get("osm_id"), "source": attrs.get("source"),
+                                         **_assess(attrs, rcfg)}
                 for g in co.get("geometry", []):
                     lods[str(g.get("lod"))] += 1
-    if not files:
-        raise BuildingError(f"Roofer produced no CityJSONSeq output in {out_dir}")
-    return {"files": [str(f) for f in files], "buildings": buildings,
-            "geometries_by_lod": dict(lods), "extrusion_modes": dict(modes)}
+    status = Counter(b["status"] for b in per_building.values())
+    return {"files": [str(f) for f in files], "buildings": len(per_building),
+            "by_status": dict(status), "geometries_by_lod": dict(lods),
+            "extrusion_modes": dict(modes), "per_building": per_building}
