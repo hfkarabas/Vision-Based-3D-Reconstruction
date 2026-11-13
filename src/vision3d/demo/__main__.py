@@ -12,10 +12,11 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .support import (allocate_run, child_options, open_directory, read_result,
                       repository_root, resolve_castle, run_job, supported_images, write_camera_visibility)
+from .uav import UAV_PROFILE, run_uav, scene_command
 
 
 class DemoApp:
-    def __init__(self, root):
+    def __init__(self, root, uav_default=False):
         self.root = root
         root.title("Vision-Based 3D Reconstruction")
         root.geometry("890x690")
@@ -35,7 +36,7 @@ class DemoApp:
         self.video_options = {}
         self.quality = tk.StringVar(value="1600")
         self.enhanced_matching = tk.BooleanVar(value=False)
-        self.dense_profile = tk.StringVar(value="Sparse only")
+        self.dense_profile = tk.StringVar(value=UAV_PROFILE if uav_default else "Sparse only")
         self.mesh_requested = tk.BooleanVar(value=True)
         self.glb_requested = tk.BooleanVar(value=False)
         self.texture_requested = tk.BooleanVar(value=False)
@@ -53,6 +54,7 @@ class DemoApp:
         self.worker = None
         self.started = None
         self.result = None
+        self.blend_result = None
         self.run_folder = None
         self.viewer = None
         self.viewer_status = None
@@ -70,19 +72,26 @@ class DemoApp:
         self.folder_entry.grid(row=0, column=1, sticky="ew", padx=8)
         image_buttons = ttk.Frame(panel)
         image_buttons.grid(row=0, column=2)
-        self.button(image_buttons, "Folder…", self.browse_folder).pack(side="left")
-        self.button(image_buttons, "Files…", self.browse_files).pack(side="left")
-        self.button(image_buttons, "Video…", self.browse_video).pack(side="left")
+        self.button(image_buttons, "Select Folder", self.browse_folder).pack(side="left")
+        self.file_button = self.button(image_buttons, "Files…", self.browse_files)
+        self.file_button.pack(side="left")
+        self.video_button = self.button(image_buttons, "Video…", self.browse_video)
+        self.video_button.pack(side="left")
         ttk.Label(panel, textvariable=self.count).grid(row=1, column=1, sticky="w", padx=8, pady=(0, 8))
         ttk.Label(panel, text="Camera JSON (optional)").grid(row=2, column=0, sticky="w")
         ttk.Entry(panel, textvariable=self.camera, state="readonly").grid(row=2, column=1, sticky="ew", padx=8)
         camera_buttons = ttk.Frame(panel)
         camera_buttons.grid(row=2, column=2)
-        self.button(camera_buttons, "Browse…", self.browse_camera).pack(side="left")
-        self.button(camera_buttons, "Clear", lambda: self.camera.set("")).pack(side="left")
+        self.calibration_buttons = [
+            self.button(camera_buttons, "Browse…", self.browse_camera),
+            self.button(camera_buttons, "Clear", lambda: self.camera.set("")),
+        ]
+        for button in self.calibration_buttons:
+            button.pack(side="left")
         choices = ttk.Frame(panel)
         choices.grid(row=3, column=0, columnspan=3, sticky="w", pady=12)
-        self.button(choices, "Load Castle Demo", self.load_castle).pack(side="left")
+        self.castle_button = self.button(choices, "Load Castle Demo", self.load_castle)
+        self.castle_button.pack(side="left")
         self.button(choices, "Open Previous Result", self.previous).pack(side="left", padx=8)
         self.start_button = self.button(choices, "Start Reconstruction", self.start)
         self.start_button.pack(side="left")
@@ -104,11 +113,11 @@ class DemoApp:
         dense_options.grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Label(dense_options, text="Multi-view").pack(side="left", padx=(0, 6))
         self.profile_box = ttk.Combobox(dense_options, textvariable=self.dense_profile,
-                                        values=("Sparse only", "fast", "balanced", "high", "uav", "uav-conditioned",
+                                        values=(UAV_PROFILE, "Sparse only", "fast", "balanced", "high", "uav", "uav-conditioned",
                                                 "uav-recovery", "uav-coverage"),
-                                        state="readonly", width=16)
+                                        state="readonly", width=19)
         self.profile_box.pack(side="left")
-        self.profile_box.bind("<<ComboboxSelected>>", lambda event: self.busy(False))
+        self.profile_box.bind("<<ComboboxSelected>>", self.change_profile)
         self.mesh_check = ttk.Checkbutton(dense_options, text="Colored mesh", variable=self.mesh_requested,
                                           command=lambda: self.busy(False), state="disabled")
         self.mesh_check.pack(side="left", padx=8)
@@ -140,13 +149,18 @@ class DemoApp:
         self.camera_checkbox = ttk.Checkbutton(result_buttons, text="Show Cameras (C)", variable=self.show_cameras,
                                                command=self.set_camera_visibility, state="disabled")
         self.camera_checkbox.pack(side="left", padx=8)
-        ttk.Label(panel, text="3D view: left-drag rotates · wheel zooms · Ctrl + left-drag pans").grid(
-            row=12, column=0, columnspan=3, sticky="w", pady=8)
+        blend_controls = ttk.Frame(panel)
+        blend_controls.grid(row=12, column=0, columnspan=3, sticky="w", pady=8)
+        self.blend_button = ttk.Button(blend_controls, text="Open Blend File", command=self.open_blend,
+                                      state="disabled")
+        self.blend_button.pack(side="left")
+        self.viewer_help = ttk.Label(blend_controls)
+        self.viewer_help.pack(side="left", padx=8)
         self.log = tk.Text(panel, height=9, wrap="word", background="white", foreground="black",
                            font=("Calibri", 10), relief="solid", borderwidth=1, state="disabled")
         self.log.grid(row=13, column=0, columnspan=3, sticky="nsew")
         panel.rowconfigure(13, weight=1)
-        self.note("Select two photographs for pair mode or more for incremental SfM. Without Camera JSON, intrinsics are estimated per image.")
+        self.busy(False)
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.after(100, self.poll)
 
@@ -165,6 +179,19 @@ class DemoApp:
         self.note(text)
         messagebox.showerror("Vision-Based 3D Reconstruction", text, parent=self.root)
 
+    def clear_blend(self):
+        if self.blend_result is not None:
+            self.result_path.set("No result loaded")
+            self.statistics.set("Registered cameras: —    Landmarks: —")
+            self.stage.set("Ready")
+            self.run_folder = None
+        self.blend_result = None
+        self.blend_button.configure(state="disabled")
+
+    def change_profile(self, event):
+        self.clear_blend()
+        self.busy(False)
+
     def show_count(self):
         files = supported_images(self.folder.get())
         self.count.set(f"{len(files)} supported JPEG/PNG images detected; readability checked at start")
@@ -172,6 +199,7 @@ class DemoApp:
     def browse_folder(self):
         value = filedialog.askdirectory(title="Select ordered JPEG/PNG image folder", parent=self.root)
         if value:
+            self.clear_blend()
             self.selected_files = ()
             self.video_path = None
             self.video_settings_button.configure(state="disabled")
@@ -181,11 +209,13 @@ class DemoApp:
                 self.show_count()
             except (ValueError, OSError) as exc:
                 self.error(str(exc))
+            self.busy(False)
 
     def browse_files(self):
         files = filedialog.askopenfilenames(title="Select JPEG/PNG photographs",
                                             filetypes=[("Photographs", "*.jpg *.jpeg *.png")], parent=self.root)
         if files:
+            self.clear_blend()
             self.selected_files = files
             self.video_path = None
             self.video_settings_button.configure(state="disabled")
@@ -205,6 +235,7 @@ class DemoApp:
             self.error(str(exc))
             return
         self.video_path = path
+        self.clear_blend()
         self.selected_files = ()
         self.camera.set("")
         self.folder.set(path)
@@ -265,6 +296,7 @@ class DemoApp:
     def load_castle(self):
         try:
             folder, camera = resolve_castle(self.root_dir)
+            self.clear_blend()
             self.selected_files = ()
             self.video_path = None
             self.video_settings_button.configure(state="disabled")
@@ -276,14 +308,17 @@ class DemoApp:
             self.error(str(exc))
 
     def busy(self, active):
+        uav = self.dense_profile.get() == UAV_PROFILE
         for button in self.actions:
             button.configure(state="disabled" if active else "normal")
+        for button in (self.file_button, self.video_button, self.castle_button, *self.calibration_buttons):
+            button.configure(state="disabled" if active or uav else "normal")
         self.view_button.configure(state="normal" if not active and self.result and self.viewer is None else "disabled")
-        self.quality_box.configure(state="disabled" if active else "readonly")
-        self.enhanced_check.configure(state="disabled" if active else "normal")
-        self.video_settings_button.configure(state="normal" if self.video_path and not active else "disabled")
+        self.quality_box.configure(state="disabled" if active or uav else "readonly")
+        self.enhanced_check.configure(state="disabled" if active or uav else "normal")
+        self.video_settings_button.configure(state="normal" if self.video_path and not (active or uav) else "disabled")
         self.profile_box.configure(state="disabled" if active else "readonly")
-        dense = not active and self.dense_profile.get() != "Sparse only"
+        dense = not (active or uav) and self.dense_profile.get() != "Sparse only"
         self.mesh_check.configure(state="normal" if dense else "disabled")
         self.glb_check.configure(state="normal" if dense and self.mesh_requested.get() else "disabled")
         self.texture_check.configure(state="normal" if dense and self.mesh_requested.get() else "disabled")
@@ -294,12 +329,20 @@ class DemoApp:
         self.mesh_button.configure(state="normal" if not active and mesh_available and self.viewer is None else "disabled")
         self.texture_button.configure(state="normal" if not active and self.viewer is None else "disabled")
         self.output_button.configure(state="normal" if not active and self.run_folder else "disabled")
+        self.blend_button.configure(state="normal" if not active and uav and self.blend_result else "disabled")
+        self.viewer_help.configure(text="Select a folder of GPS-tagged UAV photos." if uav else
+                                   "3D view: left-drag rotates · wheel zooms · Ctrl + left-drag pans")
 
     def start(self):
         if self.worker is not None or self.closing:
             return
+        self.clear_blend()
         if not self.folder.get():
             self.error("Select a video, an image folder or at least two photographs first.")
+            return
+        profile = self.dense_profile.get()
+        if profile == UAV_PROFILE and (self.selected_files or self.video_path):
+            self.error("Select a folder of original UAV photos for the Blender workflow.")
             return
         self.result = None
         self.textured_path = None
@@ -310,7 +353,12 @@ class DemoApp:
         self.stop.clear()
         self.started = perf_counter()
         self.busy(True)
-        profile = self.dense_profile.get()
+        if profile == UAV_PROFILE:
+            base = self.output_base if self.output_base != self.root_dir / "outputs/demo" else self.root_dir / "outputs/demo-uav"
+            self.worker = threading.Thread(target=run_uav, args=(self.root_dir, self.folder.get(), base,
+                lambda kind, value: self.events.put((kind, value)), self.stop), name="uav-worker", daemon=False)
+            self.worker.start()
+            return
         mesh = profile != "Sparse only" and self.mesh_requested.get()
         self.worker = threading.Thread(target=run_job, args=(self.selected_files or self.folder.get(), self.camera.get(), self.output_base,
             lambda kind, value: self.events.put((kind, value)), self.stop, int(self.quality.get()),
@@ -337,6 +385,7 @@ class DemoApp:
         if folder:
             try:
                 result = read_result(folder)
+                self.clear_blend()
                 self.job_results.clear()
                 asset = result.directory.parent / "texture-asset" / "textured.glb"
                 self.textured_path = asset if asset.is_file() else None
@@ -350,6 +399,17 @@ class DemoApp:
             open_directory(self.run_folder)
             self.note(f"Opened output folder: {self.run_folder}")
         except (OSError, ValueError, TypeError) as exc:
+            self.error(str(exc))
+
+    def open_blend(self):
+        if self.worker is not None or not self.blend_result:
+            return
+        try:
+            command = scene_command(self.run_folder, self.folder.get())
+            process = subprocess.Popen(command)
+            self.note(f"Opening verified scene in Blender (PID {process.pid}): {command[1]}")
+        except (OSError, ValueError, KeyError) as exc:
+            self.clear_blend()
             self.error(str(exc))
 
     def open_texture(self):
@@ -419,6 +479,19 @@ class DemoApp:
             elif kind == "result":
                 self.job_results[value[0].is_dense] = value[0]
                 self.show_result(value[0], elapsed=value[1])
+            elif kind == "uav_result":
+                if (self.run_folder is None or Path(value["blend"]).parent.parent != self.run_folder
+                        or Path(value["input"]) != Path(self.folder.get()).resolve()):
+                    continue
+                self.blend_result = Path(value["blend"])
+                self.result_path.set(str(self.blend_result))
+                count = value["accepted_buildings"]
+                self.statistics.set(f"Registered cameras: {value['registered']}    Accepted LOD1 volumes: {count}")
+                summary = "PARTIAL — terrain verified, no accepted buildings" if value["status"] == "partial" else "Verified Blender scene ready"
+                self.stage.set(summary)
+                self.note(f"{summary}. {self.blend_result}")
+                if value.get("partial_reason"):
+                    self.note(value["partial_reason"])
             elif kind == "notice":
                 self.note(value)
             elif kind == "texture":
@@ -431,7 +504,7 @@ class DemoApp:
                 self.stage.set("Failed — see details below")
                 self.note(value)
             # The done event may precede thread exit. Controls are re-enabled below only after exit.
-        if self.worker is not None and not self.worker.is_alive():
+        if self.worker is not None and not self.worker.is_alive() and self.events.empty():
             self.worker.join()
             self.worker = None
             if self.started is not None:
@@ -439,7 +512,7 @@ class DemoApp:
             self.started = None
             if not self.closing:
                 self.busy(False)
-                if self.stop.is_set() and self.result is None:
+                if self.stop.is_set() and self.result is None and self.blend_result is None:
                     self.stage.set("Cancelled — incomplete run files may remain")
         if self.started is not None:
             self.elapsed.set(f"Elapsed: {perf_counter() - self.started:.1f} s")
@@ -497,7 +570,7 @@ class DemoApp:
 
 def main():
     root = tk.Tk()
-    DemoApp(root)
+    DemoApp(root, uav_default="--uav" in sys.argv[1:])
     root.mainloop()
 
 

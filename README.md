@@ -164,7 +164,9 @@ Launch from the configured checkout (Python 3.12, existing dependencies and Tkin
 .venv\Scripts\python.exe -m vision3d.demo
 ```
 
-Alternatively, double-click `run_demo.bat`. The launcher uses this checkout's `.venv` and does not require administrator privileges. Standard Windows Python includes Tkinter; verify it with `.venv\Scripts\python.exe -m tkinter` if needed. No new Python dependencies, browser, server or dataset download is required.
+Double-click `run_demo.bat` to start the same application with **UAV Blender scene** selected. Choose **Select Folder → Start Reconstruction → Open Blend File** for an overlapping GPS-tagged UAV photo set. This profile uses locally installed ODM, PDAL/GDAL, GeoAI, Qgis2threejs and Blender. See [UAV desktop alpha setup and verification](Documentation/OMEGA_RUN_DEMO_ALPHA.md).
+
+The direct Python command starts in **Sparse only** mode. You can also select **Sparse only** from **Multi-view** after opening the batch launcher. Both commands use the checkout's `.venv`. Verify Tkinter with `.venv\Scripts\python.exe -m tkinter`.
 
 For the presentation, select **Load Castle Demo → Start Reconstruction → Open 3D View**. The existing six photographs in `datasets/sceaux/images` and published intrinsics in `configs/sceaux.json` must already be present. With the validated fixed-camera point refinement, a real run takes about 20–23 seconds on the tested desktop; allow additional time on other hardware. Mouse left-drag rotates, the wheel zooms, and Ctrl + left-drag or wheel-button drag pans. Close the viewer with Q or the window close button; the application remains available. R resets the camera-aligned view; C toggles estimated camera outlines and A toggles coordinate axes when camera metadata exists. Overlays are display context, not reconstructed landmarks. Every exported point is displayed; no filtering or interpolation is applied by the viewer.
 

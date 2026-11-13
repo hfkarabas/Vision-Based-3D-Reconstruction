@@ -342,6 +342,7 @@ def main():
     parser.add_argument("--visual-review", type=Path)
     parser.add_argument("--allow-terrain-only", action="store_true",
                         help="Save verified terrain when no candidate supports a building volume.")
+    parser.add_argument("--terrain-collection", action="store_true")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1 :])
     out = args.output.resolve()
     report_dir = out / "reports"
@@ -369,6 +370,14 @@ def main():
     terrain = meshes()
     if not terrain:
         raise ValueError("Terrain GLB contains no mesh.")
+    if args.terrain_collection:
+        collection = bpy.data.collections.new("Photographic terrain")
+        bpy.context.scene.collection.children.link(collection)
+        for obj in terrain:
+            parents = list(obj.users_collection)
+            collection.objects.link(obj)
+            for parent in parents:
+                parent.objects.unlink(obj)
     apply_photo(terrain, grid, out / "terrain_photo.png")
     terrain_triangles = 0
     for obj in terrain:

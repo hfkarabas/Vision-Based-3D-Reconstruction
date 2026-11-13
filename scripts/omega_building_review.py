@@ -34,11 +34,14 @@ def alternate(args):
         mask_threshold=0.5, chip_size=(512, 512), overlap=0.5, band_indexes=[1, 2, 3],
         filter_edges=False,
     )
-    buildings = buildings.explode(index_parts=False, ignore_index=True)
-    buildings = buildings.loc[buildings.geometry.is_valid & (buildings.geometry.area >= 20)]
-    buildings[["geometry"]].to_file(args.output / "geoai_polygons.gpkg", driver="GPKG", index=False)
+    if buildings is not None:
+        buildings = buildings.explode(index_parts=False, ignore_index=True)
+        buildings = buildings.loc[buildings.geometry.is_valid & (buildings.geometry.area >= 20)]
+        if not buildings.empty:
+            buildings[["geometry"]].to_file(args.output / "geoai_polygons.gpkg", driver="GPKG", index=False)
     (args.output / "inference.json").write_text(json.dumps(dict(
-        seconds=time.perf_counter() - started, polygons=len(buildings), checkpoint_sha256=sha,
+        seconds=time.perf_counter() - started,
+        polygons=len(buildings) if buildings is not None else 0, checkpoint_sha256=sha,
         method="GeoAI BuildingFootprintExtractor, RGB Mask R-CNN ResNet50",
         revision="aa2b25d27b2c78f0e92c7b6a4813a571f9bc2288",
         settings=dict(tile=512, overlap_fraction=0.5, confidence=0.5, mask=0.5, minimum_area_m2=20),
