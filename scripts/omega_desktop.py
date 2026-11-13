@@ -15,7 +15,9 @@ import time
 import traceback
 from types import SimpleNamespace
 
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 from PIL import ExifTags, Image
 import psutil
 import rasterio as rio
@@ -25,8 +27,9 @@ import yaml
 
 from omega_odm_products import observed_products, transfer
 from omega_uav_pipeline import sha256
-from omega_uav_products import building_heights, raster
-from omega_uav_foundation_trial import prepare
+from omega_uav_products import raster
+from omega_uav_foundation_trial import FOUNDATION_BUFFER_M
+from omega_uav_publish import assemble_scene, built_ids, export_dem, stage_foundations
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -130,6 +133,7 @@ def tools():
         model=locate("VISION3D_BUILDING_MODEL", [
             legacy / "terrain-validation/checkpoints/building_footprints_usa.pth",
         ]),
+        hub_cache=locate("VISION3D_HUB_CACHE", [legacy / "runtime/hub"]),
         node=locate("VISION3D_NODE", [Path(p) for p in filter(None, [shutil.which("node")])]),
     )
 
@@ -246,9 +250,17 @@ def audit_ground(base, final, reports, features, solids):
         changed = (np.isfinite(first) != np.isfinite(second)) | (
             np.isfinite(first) & np.isfinite(second) & (first != second))
         cell_m2 = abs(src.transform.a * src.transform.e)
-        near_rejected = [shape(item["geometry"]).buffer(1.5) for item in features
-                         if item["properties"]["building_id"] not in built]
-        affected = geometry_mask(near_rejected, first.shape, src.transform, invert=True) if near_rejected else False
+        buffers = {item["properties"]["building_id"]: shape(item["geometry"]).buffer(FOUNDATION_BUFFER_M)
+                   for item in features}
+        def coverage(ids):
+            return geometry_mask([buffers[key] for key in ids], first.shape, src.transform, invert=True) if ids else (
+                np.zeros(first.shape, dtype=bool)
+            )
+        approved = coverage(built)
+        affected = coverage(buffers.keys() - built)
+        rejected_only = changed & affected & ~approved
+        if (changed & ~approved).any():
+            raise ValueError("The published terrain contains changes outside approved foundation buffers.")
         with rio.open(base / "observed.tif") as observed:
             direct = observed.read(1) > 0
         if (changed & direct).any():
@@ -260,9 +272,47 @@ def audit_ground(base, final, reports, features, solids):
             raster(reports / f"final_ground_{name}.tif", mask.astype("uint8"), grid)
     return dict(changed_cells=int(changed.sum()), changed_near_rejected_cells=int((changed & affected).sum()),
                 changed_near_rejected_m2=float((changed & affected).sum() * cell_m2),
+                changed_exclusively_near_rejected_cells=int(rejected_only.sum()),
                 observed_cells=int((direct & valid).sum()), inferred_cells=int((valid & ~direct).sum()),
                 unsupported_cells=int((~valid).sum()), cell_area_m2=cell_m2,
                 note="Candidate buffers can overlap. This measures association, including shared buffers.")
+
+
+def detect_roofs(run, local, ortho, crs):
+    """Add WHU proposals that are substantially outside the Mask R-CNN detections."""
+    detections = run.output / "detections"
+    rgb = ortho / "orthophoto.tif"
+    run.command([sys.executable, SCRIPTS / "omega_building_review.py", "alternate", "--rgb",
+                 rgb, "--checkpoint", local.model, "--output", detections])
+    primary_info = read(detections / "inference.json")
+    primary = (gpd.read_file(detections / "geoai_polygons.gpkg").to_crs(crs) if primary_info["polygons"]
+               else gpd.GeoDataFrame(geometry=[], crs=crs))
+
+    settings = read(SETTINGS)["segmentation"]
+    whu = detections / "whu"
+    run.command([sys.executable, SCRIPTS / "omega_building_inference.py", "--rgb", rgb,
+                 "--hub-cache", local.hub_cache, "--model", settings["repo"],
+                 "--threshold", settings["threshold"], "--minimum-area", settings["minimum_area_m2"],
+                 "--revision", settings["revision"], "--checkpoint-sha256", settings["sha256"], "--output", whu])
+    whu_info = read(whu / "inference.json")
+    secondary = (gpd.read_file(whu / "geoai_polygons.gpkg").to_crs(crs) if whu_info["vector_polygons"]
+                 else gpd.GeoDataFrame(geometry=[], crs=crs))
+    # Compare coverage of each supplemental footprint and of each primary fragment.
+    # A small primary footprint inside a larger proposal would otherwise be duplicated.
+    overlap_limit = 0.20
+    overlap = secondary.geometry.intersection(primary.geometry.union_all()).area
+    supplemental = secondary.loc[overlap <= overlap_limit * secondary.geometry.area]
+    supplemental = supplemental.loc[supplemental.geometry.map(
+        lambda polygon: not (primary.geometry.intersection(polygon).area >
+                             overlap_limit * primary.geometry.area).any()
+    )]
+    combined = gpd.GeoDataFrame(pd.concat([
+        primary.assign(detector="mask-rcnn"), supplemental.assign(detector="whu"),
+    ], ignore_index=True), crs=crs)
+    run.record["inference"] = dict(primary=primary_info, secondary=whu_info,
+                                  whu_max_fraction_overlapping_primary=overlap_limit,
+                                  whu_added=len(supplemental), candidates=len(combined))
+    return combined
 
 
 class Run:
@@ -370,45 +420,31 @@ def pipeline(run, cache):
         raise ValueError("ODM yielded no directly supported ground cells for the selected site.")
 
     run.set_stage("geoai", "GeoAI · detect roofs in the camera orthophoto")
-    detections = output / "detections"
-    run.command([sys.executable, SCRIPTS / "omega_building_review.py", "alternate", "--rgb",
-                 ortho / "orthophoto.tif", "--checkpoint", local.model, "--output", detections])
-    inference = read(detections / "inference.json")
-    run.record["inference"] = inference
+    candidates = detect_roofs(run, local, ortho, crs)
     final = output / "scene"
     final.mkdir()
     footprints = final / "building_footprints_projected.json"
-    polygons = detections / "geoai_polygons.gpkg"
-    if inference["polygons"]:
-        run.set_stage("foundations", "GDAL · evaluate roof elevations and foundation support")
-        foundation = output / "foundation"
-        prepared = foundation / "ground"
-        prepare(ground, observed / "dense_count.tif", polygons, prepared, 8,
-                surrounded=True, preserve_observed=True)
-        shutil.copy2(polygons, final / polygons.name)
-        building_heights(SimpleNamespace(output=foundation, extent=extent, crs=crs, pdal=local.pdal),
-                         final, ortho, run.measured)
-    else:
-        prepared = ground
-        save(footprints, dict(type="FeatureCollection", features=[]))
     shutil.copy2(ortho / "supported_photo.png", final / "terrain_photo.png")
     save(final / "grid.json", dict(crs=crs, bounds=extent, origin_enu=ground_info["origin"],
                                   texture_label=ground_info["texture_label"]))
 
-    run.set_stage("mesh", "Qgis2threejs · export the terrain surface")
-    mesh = output / "mesh"
-    run.command([sys.executable, SCRIPTS / "omega_qgis_dem.py", "--dtm", prepared / "dtm.tif",
-                 "--plugin", local.qgis, "--node", local.node, "--output", mesh])
-    run.set_stage("blender", "Blender · build the textured scene and validate foundations")
     blend = final / "terrain_white_buildings.blend"
     blender_args = [local.blender, "-b", "-t", "4", "--python-exit-code", "1", "--python"]
-    run.command([*blender_args, SCRIPTS / "omega_building_blender.py", "--", "--output", final,
-                 "--dem-mesh", mesh / "terrain.ply", "--dem-manifest", mesh / "grid.json",
-                 "--allow-terrain-only", "--terrain-collection"])
+    run.set_stage("foundations", "GDAL and Blender · validate temporary foundation surfaces")
+    prepared, mesh, features, decisions = stage_foundations(
+        run, local, blender_args, ground, ortho, observed / "dense_count.tif", candidates, final,
+    )
+    save(footprints, dict(type="FeatureCollection", features=features))
+    if mesh is None:
+        mesh = output / "mesh"
+        export_dem(run, local, prepared, mesh)
+    run.set_stage("blender", "Blender · recheck contact and export the approved scene")
+    solids = assemble_scene(run, blender_args, final, mesh)
+    if built_ids(solids) != built_ids(decisions):
+        raise ValueError("Final mesh contact disagrees with the validated foundation trial.")
     reports = final / "reports"
     solids_path = reports / "blender_buildings.json"
-    solids = read(solids_path)
-    features = read(footprints)["features"]
+    save(reports / "foundation_trial_decisions.json", decisions)
     save(reports / "ground_changes.json", audit_ground(ground, prepared, reports, features, solids))
     if features:
         run.command([sys.executable, SCRIPTS / "omega_building_review.py", "foundations", "--rgb",
@@ -426,7 +462,8 @@ def pipeline(run, cache):
     buildings = evidence["buildings"]
     run.record.update(status="verified" if buildings else "partial", blend=str(blend),
                       blend_sha256=sha256(blend), blender=str(local.blender), accepted_buildings=buildings,
-                      blender_version=evidence["blender"], mesh_provenance=read(mesh / "grid.json"))
+                      blender_version=evidence["blender"], mesh_provenance=read(mesh / "grid.json"),
+                      published_dtm=str(prepared / "dtm.tif"))
     if not buildings:
         run.record["partial_reason"] = ("GeoAI returned no roof candidates." if not features else
                                         "No detected footprint passed the raster and Blender checks.")

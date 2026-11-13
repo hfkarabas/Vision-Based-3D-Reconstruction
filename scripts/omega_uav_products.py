@@ -228,8 +228,16 @@ def building_heights(args, out, ortho, measured):
         stats(cores, np.ones_like(dsm), "count"), stats(shapes, np.ones_like(dsm), "count"), anchor_counts, strict=True,
     )
     features = []
-    for index, (shape, roof, heights, base, roof_pixels, base_pixels, anchors) in enumerate(estimates, 1):
-        props = dict(building_id=f"Building_{index:04d}", area_m2=shape.area,
+    identities = geometry["building_id"] if "building_id" in geometry else (
+        f"Building_{index:04d}" for index in range(1, len(geometry) + 1)
+    )
+    if "building_id" in geometry and (identities.isna().any() or not identities.is_unique):
+        raise ValueError("Building IDs must be present and unique.")
+    detectors = geometry.get("detector", [None] * len(geometry))
+    for identifier, detector, (shape, roof, heights, base, roof_pixels, base_pixels, anchors) in zip(
+        identities, detectors, estimates, strict=True,
+    ):
+        props = dict(building_id=identifier, area_m2=shape.area,
                      roof_samples=roof["count"], paired_height_samples=heights["count"],
                      ground_samples=base["count"], surrounding_observed_ground_cells=anchors["count"],
                      roof_core_fraction=heights["count"] / max(1, roof_pixels["count"]),
@@ -237,6 +245,8 @@ def building_heights(args, out, ortho, measured):
                      lod1_height_m=heights["median"], roof_in_dtm_frame_m=roof["median"],
                      height_provenance="GDAL DSM minus DTM; rasterstats median of roof core",
                      footprint_provenance="GeoAI roof outline; proxy for ground footprint")
+        if detector is not None:
+            props["detector"] = detector
         if not valid_extent.covers(shape):
             status = "clipped_footprint"
         elif props["roof_core_fraction"] < 0.90 or props["foundation_fraction"] < 0.98:

@@ -1,0 +1,27 @@
+{
+  "description": "Approximate visual review regions on the Sheffield ODM orthophoto, used only for evaluation. A footprint intersection of at least 80% counts as full, and over 5% as partial. These are reviewed examples rather than exhaustive reference labels.",
+  "roofs": {
+    "north_west": [333049, 3103012.5, 333072, 3103024.6],
+    "north_low_roof": [333131, 3103034, 333142.5, 3103058],
+    "north_east_pair": [333189, 3103010, 333199, 3103024],
+    "north_east_end": [333239.5, 3103013.5, 333251, 3103025],
+    "east_low_roof": [333232, 3102959.5, 333244, 3102972],
+    "east_grey_roof": [333235, 3102976, 333248, 3102988],
+    "east_lower_row": [333231, 3102907, 333245, 3102919]
+  },
+  "controls": {
+    "blue_tennis_court": [333201, 3102932, 333211, 3102954],
+    "pool_east": [333225.6, 3102965, 333230.8, 3102971.8],
+    "pool_north_east": [333224, 3102996, 333229, 3103004]
+  },
+  "control_regions_from_full_site": ["tennis", "basketball", "parking", "stream"],
+  "east_road": {
+    "old_candidate": "Building_0025",
+    "section": [[333257.25, 3102905.25], [333272.25, 3102905.25]]
+  },
+  "views": {
+    "east_road": {"center": [333263.25, 3102905.25], "width_m": 22, "z_above_m": 5, "z_below_m": 4, "direction": [1, -0.8, 0.43]},
+    "house_row": {"center": [333152, 3103019], "width_m": 205, "z_above_m": 7, "z_below_m": 3, "direction": [-0.25, -1, 0.57]},
+    "east_end_house": {"center": [333245.5, 3103019.3], "width_m": 23, "z_above_m": 6, "z_below_m": 3, "direction": [0.8, -1, 0.58]}
+  }
+}

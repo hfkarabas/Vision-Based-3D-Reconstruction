@@ -42,6 +42,8 @@ def main():
     parser.add_argument("--epsilon", type=float, default=0.6)
     parser.add_argument("--minimum-area", type=float, default=20.0)
     parser.add_argument("--max-pixels", type=int, default=8_000_000)
+    parser.add_argument("--revision")
+    parser.add_argument("--checkpoint-sha256")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -70,12 +72,33 @@ def main():
 
     mask = out / "building_masks.tif"
     probs = out / "building_class_probabilities.tif"
-    model_path = Path(hf_hub_download(repo_id=args.model, filename="model.pth", local_files_only=True))
+    model_path = Path(hf_hub_download(repo_id=args.model, filename="model.pth", revision=args.revision,
+                                     local_files_only=True))
+    with model_path.open("rb") as checkpoint:
+        model_hash = hashlib.file_digest(checkpoint, "sha256").hexdigest()
+    if args.checkpoint_sha256 and model_hash != args.checkpoint_sha256:
+        raise ValueError("The cached WHU checkpoint does not match the configured SHA-256.")
     started = time.perf_counter()
-    geoai.timm_segmentation_from_hub(
+    if args.revision:
+        # The Hub convenience wrapper resolves the default branch. Pass the pinned
+        # local files to the same GeoAI implementation used by that wrapper.
+        config_path = hf_hub_download(repo_id=args.model, filename="config.json",
+                                      revision=args.revision, local_files_only=True)
+        config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+        infer = geoai.timm_semantic_segmentation
+        model = dict(
+            model_path=str(model_path), encoder_name=config.get("encoder_name", "resnet50"),
+            architecture=config.get("architecture", "unet"), num_channels=config.get("num_channels", 3),
+            num_classes=config.get("num_classes", 2), use_timm_model=config.get("use_timm_model", False),
+            timm_model_name=config.get("timm_model_name"),
+        )
+    else:
+        infer = geoai.timm_segmentation_from_hub
+        model = dict(repo_id=args.model)
+    infer(
         input_path=str(rgb),
         output_path=str(mask),
-        repo_id=args.model,
+        **model,
         window_size=512,
         overlap=256,
         batch_size=args.batch_size,
@@ -90,16 +113,16 @@ def main():
         with rasterio.open(out / "building_probabilities.tif", "w", **profile) as dst:
             dst.write(src.read(2), 1)
             dst.set_band_description(1, "Class 1 building probability")
-    polygons = geoai.orthogonalize(input_path=str(mask), epsilon=args.epsilon)
-    polygons = polygons.explode(index_parts=False, ignore_index=True)
-    polygons = polygons.loc[
-        polygons.geometry.is_valid & (polygons.geometry.area >= args.minimum_area)
-    ]
-    polygons[["geometry"]].to_file(out / "geoai_polygons.gpkg", driver="GPKG", index=False)
     with rasterio.open(mask) as src:
         mask_pixels = int((src.read(1) == 1).sum())
-    with model_path.open("rb") as checkpoint:
-        model_hash = hashlib.file_digest(checkpoint, "sha256").hexdigest()
+    polygons = geoai.orthogonalize(input_path=str(mask), epsilon=args.epsilon) if mask_pixels else None
+    if polygons is not None:
+        polygons = polygons.explode(index_parts=False, ignore_index=True)
+        polygons = polygons.loc[
+            polygons.geometry.is_valid & (polygons.geometry.area >= args.minimum_area)
+        ]
+        if not polygons.empty:
+            polygons[["geometry"]].to_file(out / "geoai_polygons.gpkg", driver="GPKG", index=False)
     report = dict(
         input=str(rgb),
         model=args.model,
@@ -119,7 +142,7 @@ def main():
         polygon_epsilon_m=args.epsilon,
         minimum_area_m2=args.minimum_area,
         building_mask_pixels=mask_pixels,
-        vector_polygons=len(polygons),
+        vector_polygons=len(polygons) if polygons is not None else 0,
     )
     (out / "inference.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report))

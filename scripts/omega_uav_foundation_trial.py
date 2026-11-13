@@ -16,8 +16,11 @@ from shapely.geometry import MultiPoint
 from omega_terrain_cleanup import aligned, interpolate, raster, save_raster
 
 
+FOUNDATION_BUFFER_M = 1.5
+
+
 def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_cells=0,
-            surrounded=False, preserve_observed=False):
+            surrounded=False, preserve_observed=False, preserve_unfilled=False):
     if not 0 < radius <= 8:
         raise ValueError("Foundation interpolation must be bounded to at most 8 m.")
     base, profile = raster(ground / "dtm.tif")
@@ -25,12 +28,13 @@ def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_c
     counts, support = raster(dense)
     if not aligned(profile, source) or not aligned(profile, support):
         raise ValueError("Classified ground, density and DTM must share a grid.")
-    features = gpd.read_file(polygons).to_crs(profile["crs"])
+    features = (gpd.read_file(polygons) if isinstance(polygons, (str, Path)) else polygons).to_crs(profile["crs"])
     if features.empty:
         raise ValueError("No automatic building proposals are available.")
     shape = base.shape
     transform = profile["transform"]
-    target = geometry_mask(features.geometry.buffer(1.5), out_shape=shape, transform=transform, invert=True)
+    target = geometry_mask(features.geometry.buffer(FOUNDATION_BUFFER_M),
+                           out_shape=shape, transform=transform, invert=True)
     anchors = np.isfinite(classified) & (counts > 0) & ~target
     interpolated, distance = interpolate(classified, anchors, radius, transform.a)
     measured_support = counts > 0
@@ -61,7 +65,8 @@ def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_c
                 support |= geometry_mask([hull], out_shape=shape, transform=transform, invert=True)
     inferred = target & support & np.isfinite(interpolated)
     # Keep holes where the bounded interpolation cannot establish a foundation.
-    result = np.where(target, np.where(inferred, interpolated, np.nan), base)
+    result = np.where(inferred, interpolated, base) if preserve_unfilled else np.where(
+        target, np.where(inferred, interpolated, np.nan), base)
     direct = np.zeros_like(target)
     if preserve_observed:
         with rasterio.open(ground / "observed.tif") as source:
@@ -77,13 +82,14 @@ def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_c
     with np.load(ground / "terrain.npz") as terrain:
         np.savez_compressed(output / "terrain.npz", x=terrain["x"], y=terrain["y"], z=result)
     report = dict(origin=origin, interpolation="GDAL FillNodata from PDAL classified-ground Z",
-                  radius_m=radius, automatic_footprint_buffer_m=1.5,
+                  radius_m=radius, automatic_footprint_buffer_m=FOUNDATION_BUFFER_M,
                   inferred_cells=int(inferred.sum()),
                   inferred_enclosed_gap_cells=int((inferred & ~measured_support).sum()),
                   enclosed_gap_max_m=enclosed_gap_m,
                   closing_cells=closing_cells,
                   require_surrounding_anchor_hull=surrounded,
                   preserve_observed_ground=preserve_observed,
+                  preserve_unfilled_ground=preserve_unfilled,
                   maximum_distance_m=float(distance[inferred].max()) if inferred.any() else None,
                   new_cells=int((inferred & ~np.isfinite(base)).sum()),
                   observed_ground_under_roof=False)
