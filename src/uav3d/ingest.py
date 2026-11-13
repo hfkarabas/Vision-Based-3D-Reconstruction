@@ -1,6 +1,7 @@
 """Find input images and summarise their EXIF (camera, GPS) without modifying them."""
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -21,6 +22,25 @@ def find_images(folder: Path) -> list[Path]:
             if files:
                 return files
     raise FileNotFoundError(f"No images ({', '.join(sorted(IMAGE_SUFFIXES))}) in {folder} or {folder / 'images'}")
+
+
+_GCP_HEADER = re.compile(r"^\s*(\+proj=|EPSG:\d+|WGS84 UTM)", re.IGNORECASE)
+
+
+def find_gcp(images_dir: Path, images: list[Path]) -> Path | None:
+    """An ODM-format GCP file next to the images or in the dataset folder.
+
+    Accepted names: gcp_list.txt (ODM convention) or *gcp*.txt; the first line must be an ODM
+    GCP projection header, so unrelated text files are never picked up."""
+    folders = dict.fromkeys([images_dir, images[0].parent, images_dir.parent])
+    for folder in folders:
+        candidates = [folder / "gcp_list.txt", *sorted(folder.glob("*gcp*.txt"))]
+        for path in candidates:
+            if path.is_file():
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    if _GCP_HEADER.match(fh.readline()):
+                        return path
+    return None
 
 
 def summarise(images: list[Path]) -> dict:

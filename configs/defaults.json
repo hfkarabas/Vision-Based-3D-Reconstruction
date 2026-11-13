@@ -10,5 +10,18 @@
     "orthophoto_gsd_factor": 1.0,
     "dem_gsd_factor": 2.0
   },
-  "odm_flags": ["--dsm", "--dtm", "--skip-3dmodel", "--auto-boundary"]
+  "odm_flags": ["--dsm", "--dtm", "--skip-3dmodel", "--auto-boundary"],
+  "footprints": {
+    "osm_overpass_urls": ["https://overpass-api.de/api/interpreter",
+                          "https://overpass.kumi.systems/api/interpreter"],
+    "osm_retries_per_endpoint": 3,
+    "min_side_gsd": 8,
+    "min_area_m2": 10,
+    "min_coverage": 0.9
+  },
+  "roofer": {
+    "building_class": 6,
+    "ground_class": 2,
+    "lods": ["--lod12", "--lod22"]
+  }
 }
