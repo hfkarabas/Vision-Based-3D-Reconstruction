@@ -36,5 +36,10 @@
     "lods": ["--lod12", "--lod22"],
     "min_roof_height_m": 2.5,
     "low_confidence_rmse_m": 1.0
+  },
+  "export": {
+    "terrain_max_vertices": 200000,
+    "texture_max_px": 4096,
+    "blender": true
   }
 }

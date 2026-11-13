@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from uav3d import __version__, buildings, footprints, ingest, odm, plan, tools
+from uav3d import __version__, buildings, export, footprints, ingest, odm, plan, tools
 from uav3d.record import RunRecord
 
 TERRAIN = ("point_cloud", "dsm", "dtm", "orthophoto")
@@ -116,6 +116,12 @@ def cmd_run(args) -> int:
         if not args.skip_buildings:
             stage = "buildings"
             run_buildings(rec, prods, gsd, cfg, out)
+        if not args.skip_export:
+            stage = "export"
+            s = rec.stage(stage)
+            s.update(export.export(tools.odm(), prods, rec.data.get("buildings"), cfg, out / "scene",
+                                   out / "logs", tools.blender()))
+            rec.save()
         rec.finish("ok")
         print(f"ok: {out / 'run.json'}")
         return 0
@@ -140,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--reuse-odm", action="store_true",
                    help="reuse ODM products of an earlier successful run in --out")
     r.add_argument("--skip-buildings", action="store_true")
+    r.add_argument("--skip-export", action="store_true", help="no glb/CityJSON/Blender scene")
     r.set_defaults(func=cmd_run)
     args = parser.parse_args(argv)
     return args.func(args)
