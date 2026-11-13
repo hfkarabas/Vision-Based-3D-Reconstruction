@@ -1,0 +1,33 @@
+{
+  "pilot": {
+    "dense_max_image_size": 800,
+    "dense_source_views": 6,
+    "minimum_fused_pixels": 3,
+    "stereo_iterations": 3,
+    "stereo_cache_gib": 2
+  },
+  "surface": {
+    "ortho_cell_m": 0.20,
+    "terrain_cell_m": 0.50,
+    "orthophoto_max_pixels": 6000000,
+    "terrain_max_cells": 350000,
+    "maximum_ground_fill_m": 8.0,
+    "ground_classifier": "smrf",
+    "surface_mesh": "delaunay"
+  },
+  "segmentation": {
+    "repo": "giswqs/whu-building-unetplusplus-efficientnet-b4",
+    "revision": "09df9efd323bbd3d56b98b4857129eb9b5baa2d3",
+    "sha256": "922af7c96c0dc44256ab8b4d1a071f2151e0a921c997af80b55bb766bcc30dc6",
+    "threshold": 0.5,
+    "minimum_area_m2": 16.0
+  },
+  "acceptance": {
+    "minimum_reviewed_roofs": 3,
+    "minimum_dense_ground_fraction": 0.85,
+    "minimum_camera_rgb_ground_fraction": 0.85,
+    "minimum_largest_ground_component_fraction": 0.85,
+    "minimum_valid_volumes": 1,
+    "minimum_reviewed_roof_iou": 0.40
+  }
+}
