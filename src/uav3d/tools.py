@@ -37,8 +37,14 @@ class Odm:
         return self.home / "SuperBuild" / "install" / "bin"
 
     @property
-    def run_bat(self) -> Path:
-        return self.home / "run.bat"
+    def python(self) -> Path:
+        return self.home / "venv" / "Scripts" / "python.exe"
+
+    def run_cmd(self, args: list[str]) -> list[str]:
+        """ODM's own Python and run.py, bypassing run.bat/winrun.bat. Those batch files rely on
+        cmd searching the current directory (fails with NoDefaultCurrentDirectoryInExePath) and
+        always exit 0."""
+        return [str(self.python), "-X", "utf8", str(self.home / "run.py"), *args]
 
     def exe(self, name: str) -> Path:
         path = self.bin / f"{name}.exe"
@@ -47,17 +53,21 @@ class Odm:
         return path
 
     def env(self) -> dict[str, str]:
-        """Environment for ODM's bundled GDAL/PDAL executables (mirrors win32env.bat)."""
+        """Environment equivalent to ODM's win32env.bat (for run.py and bundled GDAL/PDAL)."""
         env = os.environ.copy()
+        venv = self.home / "venv"
+        system32 = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32"
         env.update(
-            PATH=os.pathsep.join([str(self.bin), str(self.bin / "opensfm" / "bin"), env.get("PATH", "")]),
+            PATH=os.pathsep.join(map(str, [venv / "Scripts", self.bin, self.bin / "opensfm" / "bin", system32])),
             GDAL_DATA=str(self.bin / "data" / "gdal"),
             GDAL_DRIVER_PATH=str(self.bin / "gdalplugins"),
             PDAL_DRIVER_PATH=str(self.bin),
             PROJ_LIB=str(self.bin / "data" / "proj"),
+            VIRTUAL_ENV=str(venv),
+            PYTHONPATH=str(venv),
+            PYENVCFG=str(venv / "pyvenv.cfg"),
         )
-        for key in ("PYTHONHOME", "PYTHONPATH"):
-            env.pop(key, None)
+        env.pop("PYTHONHOME", None)
         return env
 
 
@@ -103,6 +113,11 @@ def doctor() -> list[tuple[str, bool, str]]:
         pdal = subprocess.run([str(o.exe("pdal")), "--version"], capture_output=True, text=True,
                               env=o.env(), timeout=60)
         line = next((s for s in pdal.stdout.splitlines() if s.startswith("pdal")), "?")
+        probe = subprocess.run([str(o.python), "-c", "import cv2, opendm.config"], capture_output=True,
+                               text=True, env=o.env(), cwd=o.home, timeout=120)
+        if probe.returncode != 0:
+            raise ToolError(f"ODM Python cannot load its modules (moved install? rerun setup.ps1): "
+                            f"{probe.stderr.strip().splitlines()[-1:]}")
         rows.append(("odm", True, f"{o.version} at {o.home}; {line.strip()}"))
     except (ToolError, OSError, subprocess.SubprocessError) as exc:
         rows.append(("odm", False, str(exc)))

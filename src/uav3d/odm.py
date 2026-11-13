@@ -23,7 +23,9 @@ PRODUCTS = {
 
 
 class OdmError(RuntimeError):
-    pass
+    def __init__(self, message: str, result: dict | None = None):
+        super().__init__(message)
+        self.result = result or {}
 
 
 def prepare(images: list[Path], workdir: Path) -> Path:
@@ -43,12 +45,20 @@ def prepare(images: list[Path], workdir: Path) -> Path:
     return workdir / PROJECT
 
 
+FINISHED = "ODM app finished"
+
+
 def run(odm: Odm, workdir: Path, flags: list[str], log: Path) -> dict:
-    cmd = [str(odm.run_bat), "--project-path", str(workdir), PROJECT, *flags]
-    result = run_measured(cmd, log, cwd=odm.home)
+    """Run ODM; success requires exit code 0 AND ODM's completion line in this run's log."""
+    cmd = odm.run_cmd(["--project-path", str(workdir), PROJECT, *flags])
+    start = log.stat().st_size if log.exists() else 0
+    result = run_measured(cmd, log, cwd=odm.home, env=odm.env())
     result["command"] = cmd
-    if result["returncode"] != 0:
-        raise OdmError(f"ODM exited with {result['returncode']}; see {log}: {tail(log)}")
+    with open(log, "rb") as fh:
+        fh.seek(start)
+        this_run = fh.read().decode("utf-8", errors="replace")
+    if result["returncode"] != 0 or FINISHED not in this_run:
+        raise OdmError(f"ODM failed (exit {result['returncode']}); see {log}: {tail(log)}", result)
     return result
 
 

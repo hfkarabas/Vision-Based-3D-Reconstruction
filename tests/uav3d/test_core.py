@@ -51,7 +51,9 @@ def test_ingest_finds_images_subfolder_and_reports_missing_gps(tmp_path):
     (tmp_path / "images").mkdir()
     for i in range(2):
         Image.new("RGB", (40, 30)).save(tmp_path / "images" / f"a{i}.JPG")
+    Image.new("RGB", (8, 8)).save(tmp_path / "preview.jpg")  # dataset-root preview must be ignored
     files = ingest.find_images(tmp_path)
+    assert [f.parent.name for f in files] == ["images", "images"]
     s = ingest.summarise(files)
     assert s["count"] == 2 and s["gps_fraction"] == 0 and s["sizes"] == {"40x30": 2}
     with pytest.raises(FileNotFoundError):
