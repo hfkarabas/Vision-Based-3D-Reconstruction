@@ -1,0 +1,14 @@
+{
+  "status": "provisional: coefficients are to be set on tune datasets only (DATASET_PROTOCOL.md), then frozen with a holdout-freeze tag. No dataset-specific values belong here.",
+  "ram_budget_fraction": 0.75,
+  "pc_quality_by_ram_gb": [[12, "high"], [6, "medium"], [0, "low"]],
+  "split": {
+    "megapixel_images_per_ram_gb": 900,
+    "overlap_m": 150
+  },
+  "resolution": {
+    "orthophoto_gsd_factor": 1.0,
+    "dem_gsd_factor": 2.0
+  },
+  "odm_flags": ["--dsm", "--dtm", "--skip-3dmodel", "--auto-boundary"]
+}

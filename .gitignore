@@ -189,3 +189,6 @@ pytest-cache-files-*/
 
 # Third-party papers (copyright) - kept locally only
 deliverables/kaynakca/
+
+# Pinned external tools installed by setup.ps1
+.tools/
