@@ -1,0 +1,30 @@
+{
+  "coordinate_convention": "Polygons in pixel-edge coordinates of each 345 x 345 orthographic image. Column increases east and row increases south. These hand-reviewed labels are evaluation only.",
+  "annotation_policy": "Choose clearly identifiable interiors of roadway or visible paths, exposed ground, and at least three distinct roofs. Exclude canopy, moving objects where practical, and roof edges. Do not restrict labels to the final valid mask. Keep raised surfaces out of exposed ground. Check location against the original photos.",
+  "datasets": {
+    "urban": {
+      "source_review": "Original frames 0112, 0117, 0121 and 0144, unmasked camera RGB. The registered AirZoo DOM is a supplementary evaluation-only visual cross-check.",
+      "regions": [
+        {"id":"main_road","class":"road_or_path","vertices":[[77,327],[325,327],[325,343],[77,343]]},
+        {"id":"south_sidewalk","class":"open_ground","vertices":[[74,301],[173,301],[173,314],[74,317]]},
+        {"id":"east_paved_path_apron","class":"open_ground","vertices":[[316,132],[343,109],[343,158],[335,177],[314,158]]},
+        {"id":"north_concrete_roof","class":"roof","vertices":[[58,106],[128,105],[136,138],[57,141]]},
+        {"id":"south_concrete_roof","class":"roof","vertices":[[65,179],[133,179],[138,224],[64,227]]},
+        {"id":"dark_roof_north_of_court","class":"roof","vertices":[[188,62],[219,62],[219,97],[187,97]]},
+        {"id":"raised_court_control","class":"raised_surface","vertices":[[177,117],[222,116],[224,244],[177,244]]}
+      ]
+    },
+    "sheffield": {
+      "source_review": "Original frames DJI_0115, DJI_0118, DJI_0176 and DJI_0198, unmasked camera RGB. The nearest identifiable walk within the fixed extent is reviewed. The main street visible in the source frames is outside the fixed extent.",
+      "regions": [
+        {"id":"east_yard_walk","class":"road_or_path","vertices":[[254,98],[259,98],[260,147],[255,147]]},
+        {"id":"central_exposed_lawn","class":"open_ground","vertices":[[53,239],[196,222],[232,245],[245,329],[49,329]]},
+        {"id":"northwest_exposed_lawn","class":"open_ground","vertices":[[0,181],[56,176],[67,196],[59,227],[7,223]]},
+        {"id":"west_gray_roof","class":"roof","vertices":[[8,101],[47,101],[48,118],[105,120],[104,143],[8,143]]},
+        {"id":"center_gray_roof","class":"roof","vertices":[[185,114],[205,111],[205,96],[244,96],[244,143],[182,143]]},
+        {"id":"east_brown_roof","class":"roof","vertices":[[282,79],[307,75],[309,93],[335,101],[337,130],[282,128]]},
+        {"id":"north_gray_roof","class":"roof","vertices":[[203,2],[244,2],[244,41],[203,44]]}
+      ]
+    }
+  }
+}
