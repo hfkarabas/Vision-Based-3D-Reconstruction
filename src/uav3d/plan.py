@@ -34,19 +34,28 @@ def pc_quality(budget_gb: float, cfg: dict) -> str:
     return cfg["pc_quality_by_ram_gb"][-1][1]
 
 
-def odm_plan(summary: dict, budget_gb: float, cfg: dict) -> dict:
+def threads(requested: int | None) -> int:
+    """Worker threads for every tool (ODM/OpenSfM/OpenMVS, Roofer, dem2mesh)."""
+    available = os.cpu_count() or 1
+    if requested is not None and not 1 <= requested <= available:
+        raise ValueError(f"--threads must be between 1 and {available}.")
+    return requested or available
+
+
+def odm_plan(summary: dict, budget_gb: float, cfg: dict, n_threads: int | None = None) -> dict:
     """ODM flags shared by all phases, plus whether to split."""
     load = summary["count"] * summary["mean_megapixels"]           # megapixel-images
     capacity = cfg["split"]["megapixel_images_per_ram_gb"] * budget_gb
+    n_threads = n_threads or threads(None)
     flags = [*cfg["odm_flags"],
              "--pc-quality", pc_quality(budget_gb, cfg),
-             "--max-concurrency", str(os.cpu_count() or 1)]
+             "--max-concurrency", str(n_threads)]
     split = None
     if load > capacity:
         per_model = max(20, math.floor(capacity / summary["mean_megapixels"]))
         split = {"images_per_submodel": per_model, "overlap_m": cfg["split"]["overlap_m"]}
         flags += ["--split", str(per_model), "--split-overlap", str(cfg["split"]["overlap_m"])]
-    return {"budget_ram_gb": budget_gb, "load_mpix_images": round(load), "capacity_mpix_images": round(capacity),
+    return {"budget_ram_gb": budget_gb, "threads": n_threads, "load_mpix_images": round(load), "capacity_mpix_images": round(capacity),
             "split": split, "flags": flags}
 
 

@@ -38,11 +38,14 @@ def raster_center(path) -> np.ndarray:
         return np.array([(b.left + b.right) / 2, (b.bottom + b.top) / 2, 0.0])
 
 
-def terrain_mesh(odm, dtm, ortho, work: Path, max_vertices: int, max_texture_px: int, log: Path) -> tuple:
+def terrain_mesh(odm, dtm, ortho, work: Path, max_vertices: int, max_texture_px: int, log: Path,
+                 n_threads: int | None = None) -> tuple:
     """(textured mesh in coordinates relative to the DTM centre, run info)."""
     ply = work / "terrain.ply"
     cmd = [str(odm.exe("dem2mesh")), "-inputFile", str(dtm), "-outputFile", str(ply),
            "-maxVertexCount", str(max_vertices), "-rtc"]
+    if n_threads:
+        cmd += ["-maxConcurrency", str(n_threads)]
     info = run_measured(cmd, log, env=odm.env())
     if info["returncode"] != 0 or not ply.is_file():
         raise ExportError(f"dem2mesh failed (exit {info['returncode']}); see {log}")
@@ -228,11 +231,12 @@ def blender_scene(blender: Path, glb: Path, out_dir: Path, log: Path) -> dict:
 
 
 def export(odm, products: dict, buildings_summary: dict | None, cfg: dict, out_dir: Path, log_dir: Path,
-           blender: Path | None) -> dict:
+           blender: Path | None, n_threads: int | None = None) -> dict:
     ecfg = cfg["export"]
     out_dir.mkdir(parents=True, exist_ok=True)
     terrain, tinfo = terrain_mesh(odm, products["dtm"], products["orthophoto"], out_dir,
-                                  ecfg["terrain_max_vertices"], ecfg["texture_max_px"], log_dir / "dem2mesh.log")
+                                  ecfg["terrain_max_vertices"], ecfg["texture_max_px"], log_dir / "dem2mesh.log",
+                                  n_threads)
     origin = np.array(tinfo["center"])
     result = {"terrain": tinfo}
     meshes = {}

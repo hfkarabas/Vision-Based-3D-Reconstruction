@@ -17,49 +17,51 @@ Araştırma konusu (tez başlığı, değiştirilmez):
 
 ## Çalışma şekli
 
-- Kullanıcı: Furkan. Türkçe, doğrudan ve kısa iletişim tercih eder; dolgu yok.
+- Kullanıcı: Furkan. Türkçe, doğrudan ve kısa iletişim tercih eder; dolgu yok. Gece koşularında fan sesi istemez → uzun koşular `--threads 10` ile.
 - İzin modu Manual; Windows'ta sandbox yok, komutlar kullanıcı hesabıyla çalışır. Silme yerine arşivleme tercih edilir.
-- Proje 2026-11 başından itibaren Codex ile geliştirildi; sonuçlar yetersiz bulunduğu için 2026-11-13'ten itibaren Claude ile devam ediliyor. Codex'in ürettiği raporlardaki iddialar doğrulanmadan kabul edilmez.
+- Proje 2026-11 başında Codex ile geliştirildi; 2026-11-13'ten itibaren Claude ile devam ediliyor. Codex raporlarındaki iddialar doğrulanmadan kabul edilmez.
+- Makine: Core Ultra 5 245KF (14 çekirdek), 15,6 GB RAM, RTX 5070, Docker/WSL yok. Oturumda `NoDefaultCurrentDirectoryInExePath=1` → `.bat` başlatıcılar yanındaki dosyaları bulamaz.
 
-## Mevcut durum (2026-11-13 analizi)
+## Mevcut durum (2026-11-14)
 
-### İki akış var
+Çalışma dalı: `claude/cleanup` (push edilmedi). Plan adımları 1–4 büyük ölçüde tamam.
 
-1. **`src/vision3d` (kendi pipeline, ~400 KB):** SIFT/ORB → eşleştirme → artımlı SfM → sınırlı BA (SciPy) → StereoSGBM → voksel füzyon → grid mesh → UV doku → GLB/OBJ; Tkinter demo + Open3D viewer + CLI.
-   - `Documentation/PIPELINE_AUDIT.md`: hiçbir bileşen özgün avantaj göstermedi; yoğun derinlik ve mesh en zayıf halka.
-   - **Karar önerisi:** Kural 1 gereği üretim yolundan çıkarılıp arşive (legacy/karşılaştırma) ayrılacak. Silinmeyecek. Yararlı parçalar: provenance, tanı/denetim betikleri, export doğrulama, masaüstü kabuğu.
-2. **Omega UAV akışı (`scripts/omega_*`, dal `codex/omega-run-demo-alpha`):** ODM 3.6.2 → PDAL/GDAL (SMRF zemin, DTM/DSM) → GeoAI (Mask R-CNN + WHU) bina tespiti → Qgis2threejs mesh → Blender 5.3 LOD1 sahne. `run_demo.bat` → `vision3d.demo --uav` → `scripts/omega_desktop.py`.
-   - Sheffield (172 foto) üzerinde çalıştı; 13 bina hacmi geçti, eksik/kısmi çatılar sürüyor (`Documentation/OMEGA_SHEFFIELD_ALPHA_QUALITY.md`).
+### Yeni akış: `src/uav3d` (üretim yolu)
 
-### Bilinen sorunlar
+`Documentation/ARCHITECTURE.md`. Kurulum: `powershell -File setup.ps1` (uv + `.tools/` altına SHA-256 doğrulamalı ODM 3.6.2 ve Roofer 1.0.0; `tools.lock.json`). Kontrol: `python -m uav3d doctor`.
 
-- **Taşınabilirlik:** GIS Python ortamı ve PYTHONPATH eklemeleri `.gitignore`'daki `outputs/` altından yükleniyor (`outputs/mission-omega/building-recovery/runtime/venv`, `outputs/mission-omega/reusable-uav/gis-extra`). geopandas, rasterio, psutil, yaml vb. `pyproject.toml`'da yok. Temiz klonda UAV profili çalışmaz.
-- **Genellik (Kural 3 ihlalleri):** sabit ODM bayrakları (`--pc-quality low` vb.), Sheffield'da ayarlanmış eşikler, datasete özel config'ler (`configs/omega_terrain_urban_regions.json` vb.), EXIF GPS zorunlu, otomatik bölme (split-merge) büyük sahada doğrulanmamış, bina detektörü tek sahada sınanmış.
-- **Araştırma:** `Documentation/RESEARCH_HYPOTHESIS.md` geniş fikrin literatürde büyük ölçüde var olduğunu söylüyor; önceki adaptif deneme olumsuz. "Büyük ölçekli" ve "kaynak kısıtlı" kısmı hiç test edilmedi. Özgün katkı henüz daraltılmadı.
-- **Düzen:** kökte 15 `pytest-cache-files-*`, Open3D ekran görüntüleri, Codex prompt/çalıştırıcıları (`MISSION*_PROMPT.txt`, `RUN_MISSION_*.ps1`); `outputs/` içinde 35 geçici pytest dizini ve 12 MB `codex-night/mission0.log`; belgeler `docs/` ve `Documentation/` arasında bölünmüş, dil karışık; `pyproject.toml` açıklaması/sürümü eski; `scripts/` (~720 KB) paketin iki katı ve betikler arası import ile bağlı.
+```
+python -m uav3d run <görüntü klasörü> --out <çıktı> [--threads N] [--budget-ram-gb G] [--gcp f] [--reuse-odm] [--skip-buildings] [--skip-export]
+```
 
-### Mevcut varlıklar
+Aşamalar: ingest (EXIF, GCP otomatik) → plan (RAM/görüntü yükünden pc-quality, split) → ODM iki faz (SfM → GSD hesabı → dense/DEM/orto 1×/2×GSD) → bina (OSM + nokta bulutundan taban izi → Roofer LoD1.2/2.2 → bina başına kalite: yükseklik, RMSE) → export (`scene/scene.glb`, `buildings.city.json`, `scene.json`, `scene.blend`, `preview.png`). Her şey `run.json`'a (süre, tepe RAM, hata aşaması) yazılır. Katsayılar `configs/defaults.json` (geçici; yalnız ayar setlerinde belirlenir).
 
-- Literatür kaydı: `Documentation/research/literature-register.{csv,json}` (L1–L42), `Documentation/LITERATURE_REVIEW.md`, `PRIOR_WORK_COMPARISON.md`, `MISSION_OMEGA_SOURCE_RESEARCH/`, PDF'ler `deliverables/kaynakca/`.
-- Datasetler (`datasets/`): airzoo (rural/urban), omega-terrain-validation (sheffield, jb3d), sceaux, temple, tanks_and_temples/caterpillar, middlebury-motorcycle.
-- Bağımsız COLMAP baseline: Rural 190/190, Urban 161/161 (`Documentation/research/BASELINE_RESULTS.md`).
+Doğrulanan: Brighton Beach (18 foto, 2,7 dk, 2,8 GB), Sheffield (172 foto, 36 dk, 7,9 GB, 25 bina: 22 ok / 3 düşük güven). 241 test geçiyor.
 
-### 2026-11-13 ilerleme
+Önemli bulgular:
+- ODM'yi `run.bat` ile değil kendi Python'u ile çağır (`.bat` her zaman exit 0 döner); başarı = "ODM app finished" log satırı.
+- Kopyalanan ODM kurulumu mutlak yollar içerir → `setup.ps1` `Repair-OdmPaths` ile düzeltir.
+- ODM 3.6 nokta bulutu ASPRS sınıflı (2 zemin, 3 bitki, 6 bina) → Roofer varsayılanları doğru.
+- OpenMVS RTX 5070'i kullanmıyor (GPU %1) → muhtemelen eski CUDA derlemesi; hızlanma fırsatı, incelenmedi.
+- "Sheffield" seti aslında ABD/Florida (28,04K −82,70B).
+- Roofer RMSE (LoD2.2) referanssız bina kalite sinyali: gerçek çatılar 0,2–0,5 m, ağaç karışımı >1 m. Araştırmadaki kalite geri beslemesi için aday.
 
-- Literatür taraması (plan 1) tamam: Claude Doc https://claude.ai/artifact/PPwpvVYfQJiud2e7Uvox8b. Karar: ODM/OpenMVS omurga, Roofer LoD2.2, PDAL SMRF; özgün katkı = bütçe altında karo bazlı kalite geri beslemeli yeniden yoğunlaştırma.
-- Dataset protokolü (plan 2) tamam: `Documentation/research/DATASET_PROTOCOL.md`, `configs/dataset_registry.json`. Yerel tüm setler "ayar" rolünde (kirli). ODMdata 6 set `datasets/odm/`; Ziegeleipark ve UseGeo (`datasets/usegeo/`, sertifikası süresi dolmuş sunucu, kullanıcı onayıyla) indirildi/iniyor.
-- Temizlik (plan 4) `claude/cleanup` dalında yapıldı: `Documentation/CLEANUP_PLAN.md`; arşiv `C:\projects\_archive\vision3d-2026-11-13\`. Üretimde kalan: 21 `scripts/omega_*` + `src/vision3d`.
-- Kaliteyi bozan bulunan ayar: `configs/omega_reusable_uav.json` → `dense_max_image_size: 800`, sabit metrik hücre boyutları (GSD'den bağımsız). Yeni mimaride düzeltilecek.
-- Bu makine: 15,6 GB RAM.
+### Eski akışlar (legacy)
 
-## Plan (öncelik sırası)
+- `src/vision3d` + `scripts/omega_*` (21 dosya) + `run_demo.bat`: Codex demo yolu, hâlâ çalışır durumda ama `outputs/mission-omega/` altındaki araçlara bağlı. Yeni akış tamamen yerini alınca legacy'ye ayrılacak.
+- Kaliteyi bozan eski ayar: `configs/omega_reusable_uav.json` → `dense_max_image_size: 800`, sabit metrik hücreler.
 
-1. **Sistematik literatür taraması** (Docs olarak):
-   - (a) büyük ölçekli / kaynak kısıtlı UAV fotogrametri: ODM split-merge, COLMAP/GLOMAP, OpenMVS, karo tabanlı işleme;
-   - (b) kalite geri beslemeli / adaptif rekonstrüksiyon: görüntü seçimi, belirsizlik, bölgesel yeniden işleme;
-   - (c) arazi/bina ayrımı ve LOD bina: zemin filtreleme, çatı segmentasyonu, PolyFit/City3D benzeri.
-   - Çıktı: kaynak tablosu, her aşama için "hangi açık kaynak araç ve neden" kararı, savunulabilir daraltılmış araştırma sorusu.
-2. **Dataset envanteri ve test protokolü:** farklı ülke/kamera/GSD/ölçekte açık İHA setleri; ayar ve hold-out ayrımı; ölçülebilir "genel çalışır" kriterleri.
-3. **Mimari:** ince orkestrasyon katmanı + açık kaynak araçlar, tek komutla tekrarlanabilir kurulum (hiçbir şey `outputs/`'a bağlı değil), datasetten bağımsız ayarlar, `pyproject.toml`'da `gis` bağımlılık grubu.
-4. **Temizlik:** kök ve `outputs/` geçici dosyaları arşive; `src/vision3d` legacy olarak ayrılır; belgeler tek dizinde birleşir.
-5. **Hipotez deneyi:** dondurulmuş ODM/COLMAP referansına karşı statik seçici vs. adaptif zamanlayıcı, önceden ilan edilmiş bütçelerde.
+### Araştırma ve veri
+
+- Literatür (plan 1): Claude Doc https://claude.ai/artifact/PPwpvVYfQJiud2e7Uvox8b. Özgün katkı: sabit RAM/süre bütçesinde karo bazlı, kalite geri beslemeli yeniden yoğunlaştırma zamanlayıcısı; H1–H3 belgede. Açık soru: tepe RAM bütçesi (belgede yorum).
+- Protokol (plan 2): `Documentation/research/DATASET_PROTOCOL.md`, `configs/dataset_registry.json`. Yerel eski setler (Sheffield, AirZoo) = ayar. Genellik: `datasets/odm/` (brighton_beach, aukerman, toledo, helenenschacht, waterbury, zoo; ziegeleipark.zip 29,8 GB MD5 doğrulandı, açılmadı). Hold-out: UseGeo (`datasets/usegeo/`, iniyor; sunucu sertifikası süresi dolmuş, kullanıcı onayıyla doğrulamasız indirildi), JB3D (kısmi), UrbanScene3D/ISPRS Zollern (indirilmedi).
+- Temizlik (plan 4): `Documentation/CLEANUP_PLAN.md`; arşiv `C:\projects\_archive\vision3d-2026-11-13\`.
+
+## Sıradaki işler
+
+1. **Genellik koşusu sonucu:** `bench/run_smoke.ps1 -Threads 10` (2026-11-14 gecesi başlatıldı) → `outputs/smoke/summary.md` (G1–G4). Hataları datasete özel değil, genel kuralla düzelt.
+2. Bina taban izi iyileştirme (ayar setlerinde): ağaç yapışması, tırtıklı sınırlar, birkaç yanlış pozitif.
+3. Ziegeleipark (7 169 foto): split yolunu ilk kez sınar; gece, `--threads 10`.
+4. OpenMVS GPU kullanımı (RTX 5070 / CUDA sürümü).
+5. Değerlendirme modülü `uav3d/evaluate` (UseGeo LiDAR'a göre P/R/F); sonra hipotez deneyi (plan 5).
+6. `src/vision3d` ve eski demo yolunu legacy'ye ayır; `docs/` + `Documentation/` birleştir.

@@ -25,12 +25,13 @@ def srs_of(dsm_path) -> str | None:
     return f"EPSG:{epsg}" if epsg else None
 
 
-def run(roofer: Path, point_cloud: Path, roofprints: Path, out_dir: Path, dsm_path, cfg: dict, log: Path) -> dict:
+def run(roofer: Path, point_cloud: Path, roofprints: Path, out_dir: Path, dsm_path, cfg: dict, log: Path,
+        n_threads: int | None = None) -> dict:
     rcfg = cfg["roofer"]
     out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [str(roofer), *rcfg["lods"], "--bld-class", str(rcfg["building_class"]),
            "--grnd-class", str(rcfg["ground_class"]), "--id-attribute", "fp_id",
-           "-j", str(os.cpu_count() or 1)]
+           "-j", str(n_threads or os.cpu_count() or 1)]
     if srs := srs_of(dsm_path):
         cmd += ["--srs", srs]
     cmd += [str(point_cloud), str(roofprints), str(out_dir)]

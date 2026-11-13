@@ -61,7 +61,8 @@ def run_odm(rec: RunRecord, o: tools.Odm, images, summary, gcp, p, cfg, out: Pat
     return prods, gsd
 
 
-def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out: Path) -> None:
+def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out: Path,
+                  n_threads: int | None = None) -> None:
     bdir = out / "buildings"
     bdir.mkdir(parents=True, exist_ok=True)
     s = rec.stage("buildings:footprints")
@@ -76,7 +77,7 @@ def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out:
         return
     s = rec.stage("buildings:roofer")
     s.update(buildings.run(tools.roofer(), Path(prods["point_cloud"]), gpkg, bdir / "roofer",
-                           prods["dsm"], cfg, out / "logs" / "roofer.log"))
+                           prods["dsm"], cfg, out / "logs" / "roofer.log", n_threads))
     rec.set("buildings", {"status": "ok", **s["summary"]})
 
 
@@ -89,6 +90,8 @@ def cmd_run(args) -> int:
                     defaults_status=cfg["status"])
     stage = "setup"
     try:
+        n_threads = plan.threads(args.threads)
+        rec.set("threads", n_threads)
         if previous:
             stage = "odm:reused"
             rec.set("ingest", previous["ingest"])
@@ -108,19 +111,19 @@ def cmd_run(args) -> int:
             if summary["gps_fraction"] < 1.0 and not gcp:
                 rec.set("warning", "Not all images carry EXIF GPS and no GCP file; outputs may be in a local frame.")
             stage = "plan"
-            p = plan.odm_plan(summary, plan.ram_budget_gb(args.budget_ram_gb, cfg), cfg)
+            p = plan.odm_plan(summary, plan.ram_budget_gb(args.budget_ram_gb, cfg), cfg, n_threads)
             rec.set("plan", p)
             stage = "odm"
             prods, gsd = run_odm(rec, o, images, summary, gcp, p, cfg, out)
         rec.set("products", prods)
         if not args.skip_buildings:
             stage = "buildings"
-            run_buildings(rec, prods, gsd, cfg, out)
+            run_buildings(rec, prods, gsd, cfg, out, n_threads)
         if not args.skip_export:
             stage = "export"
             s = rec.stage(stage)
             s.update(export.export(tools.odm(), prods, rec.data.get("buildings"), cfg, out / "scene",
-                                   out / "logs", tools.blender()))
+                                   out / "logs", tools.blender(), n_threads))
             rec.save()
         rec.finish("ok")
         print(f"ok: {out / 'run.json'}")
@@ -142,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--out", required=True, help="output folder")
     r.add_argument("--budget-ram-gb", type=float, default=None,
                    help="RAM budget; default: ram_budget_fraction of installed RAM")
+    r.add_argument("--threads", type=int, default=None,
+                   help="worker threads for all tools (default: all logical CPUs)")
     r.add_argument("--gcp", help="ODM-format GCP file (default: auto-detect next to the images)")
     r.add_argument("--reuse-odm", action="store_true",
                    help="reuse ODM products of an earlier successful run in --out")
