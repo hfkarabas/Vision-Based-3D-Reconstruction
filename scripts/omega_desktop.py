@@ -297,22 +297,41 @@ def detect_roofs(run, local, ortho, crs):
     whu_info = read(whu / "inference.json")
     secondary = (gpd.read_file(whu / "geoai_polygons.gpkg").to_crs(crs) if whu_info["vector_polygons"]
                  else gpd.GeoDataFrame(geometry=[], crs=crs))
-    # Compare coverage of each supplemental footprint and of each primary fragment.
-    # A small primary footprint inside a larger proposal would otherwise be duplicated.
+    combined = append_roofs(primary.assign(detector="mask-rcnn"), secondary.assign(detector="whu"))
+    report = dict(primary=primary_info, secondary=whu_info, whu_max_fraction_overlapping_primary=0.20,
+                  whu_added=len(combined) - len(primary))
+    if home := os.environ.get("VISION3D_UAGLNET_HOME"):
+        root = Path(home).expanduser().resolve()
+        deps = root / "deps"
+        if not deps.is_dir():
+            raise FileNotFoundError(f"UAGLNet dependencies are missing at {deps}.")
+        env = os.environ.copy()
+        env.update(PYTHONPATH=os.pathsep.join(filter(None, [str(deps), env.get("PYTHONPATH")])),
+                   HF_HUB_OFFLINE="1", ALBUMENTATIONS_NO_TELEMETRY="1", NO_ALBUMENTATIONS_UPDATE="1")
+        extra = detections / "uaglnet"
+        run.command([sys.executable, SCRIPTS / "omega_uaglnet_inference.py", rgb, extra, "--home", root,
+                     "--threshold", settings["threshold"], "--minimum-area", settings["minimum_area_m2"]], env=env)
+        info = read(extra / "inference.json")
+        count = len(combined)
+        if info["polygons"]:
+            proposals = gpd.read_file(extra / "geoai_polygons.gpkg").to_crs(crs)
+            combined = append_roofs(combined, proposals.assign(detector="uaglnet"))
+        report.update(uaglnet=info, uaglnet_added=len(combined) - count)
+    run.record["inference"] = dict(report, candidates=len(combined))
+    return combined
+
+
+def append_roofs(primary, secondary):
+    """Exclude proposals substantially overlapping a current footprint in either direction."""
     overlap_limit = 0.20
     overlap = secondary.geometry.intersection(primary.geometry.union_all()).area
     supplemental = secondary.loc[overlap <= overlap_limit * secondary.geometry.area]
     supplemental = supplemental.loc[supplemental.geometry.map(
         lambda polygon: not (primary.geometry.intersection(polygon).area >
                              overlap_limit * primary.geometry.area).any()
-    )]
-    combined = gpd.GeoDataFrame(pd.concat([
-        primary.assign(detector="mask-rcnn"), supplemental.assign(detector="whu"),
-    ], ignore_index=True), crs=crs)
-    run.record["inference"] = dict(primary=primary_info, secondary=whu_info,
-                                  whu_max_fraction_overlapping_primary=overlap_limit,
-                                  whu_added=len(supplemental), candidates=len(combined))
-    return combined
+    ).astype(bool)]
+    return gpd.GeoDataFrame(pd.concat([primary, supplemental], ignore_index=True), crs=primary.crs)
+
 
 
 class Run:

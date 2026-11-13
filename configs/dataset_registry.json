@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "updated": "2026-11-13",
+  "protocol": "Documentation/research/DATASET_PROTOCOL.md",
+  "roles": {
+    "tune": "Esik/parametre secimi; sonuc olarak raporlanmaz",
+    "smoke": "Genellik: datasete ozel ayar olmadan calisma kaniti",
+    "holdout": "Dondurulmus surumle tek resmi kosu",
+    "out_of_scope": "UAV degil; yalnizca eski pipeline testleri"
+  },
+  "datasets": [
+    {"id": "sheffield_cross", "role": "tune", "local_path": "datasets/omega-terrain-validation/sheffield", "source": "https://github.com/pierotofy/drone_dataset_sheffield_cross", "country": "GB", "camera": "DJI FC300S", "images": 172, "georef": ["exif_gps", "gcp"], "reference": null, "license": "Unlicense"},
+    {"id": "airzoo_rural_s2", "role": "tune", "local_path": "datasets/airzoo/rural/Scene2", "source": "https://huggingface.co/datasets/RingoWRW97/AirZoo-Real", "country": "CN", "camera": "DJI M4T", "images": 190, "georef": ["exif_gps", "rtk"], "reference": "dsm", "license": "unverified"},
+    {"id": "airzoo_urban_s1", "role": "tune", "local_path": "datasets/airzoo/urban/Scene1", "source": "https://huggingface.co/datasets/RingoWRW97/AirZoo-Real", "country": "CN", "camera": "DJI M4T", "images": 161, "georef": ["exif_gps", "rtk"], "reference": "dsm", "license": "unverified"},
+    {"id": "usegeo_1", "role": "tune", "local_path": null, "source": "https://github.com/3DOM-FBK/usegeo", "country": "unverified", "camera": "unverified, 7952x5304", "images": 224, "georef": ["poses"], "reference": "lidar", "license": "CC-BY-NC-SA-4.0"},
+    {"id": "usegeo_2", "role": "holdout", "local_path": null, "source": "https://github.com/3DOM-FBK/usegeo", "country": "unverified", "camera": "unverified, 7952x5304", "images": 328, "georef": ["poses"], "reference": "lidar", "license": "CC-BY-NC-SA-4.0", "note": "usegeo_1 ile ayni alan ve kamera"},
+    {"id": "usegeo_3", "role": "holdout", "local_path": null, "source": "https://github.com/3DOM-FBK/usegeo", "country": "unverified", "camera": "unverified, 7952x5304", "images": 277, "georef": ["poses"], "reference": "lidar", "license": "CC-BY-NC-SA-4.0", "note": "usegeo_1 ile ayni alan ve kamera"},
+    {"id": "jb3d_bench", "role": "holdout", "local_path": "datasets/omega-terrain-validation/jb3d", "source": "https://github.com/JB3D-Dataset/Multi-View-Stereo", "country": "unverified", "camera": "UAV video 3840x2160", "images": null, "georef": ["enu_poses"], "reference": "lidar", "license": "CC-BY-4.0", "note": "yerelde kismi; kamera translation duzeltmesi dogrulanmali"},
+    {"id": "urbanscene3d_real", "role": "holdout", "local_path": null, "source": "https://vcc.tech/UrbanScene3D", "country": "CN", "camera": "unverified", "images": null, "georef": ["unverified"], "reference": "tls", "license": "unverified"},
+    {"id": "isprs_zollern", "role": "holdout", "local_path": null, "source": "https://www2.isprs.org/commissions/comm2/icwg-2-1a/benchmark_main/", "country": "DE", "camera": "unverified", "images": null, "georef": ["gcp"], "reference": "survey_targets", "license": "attribution-required"},
+    {"id": "h3d", "role": "holdout", "local_path": null, "source": "https://ifpwww.ifp.uni-stuttgart.de/benchmark/hessigheim/default.aspx", "country": "DE", "camera": "unverified", "images": null, "georef": ["unverified"], "reference": "uav_lidar", "license": "conflicting", "note": "ham goruntu erisimi dogrulanmali"},
+    {"id": "odm_brighton_beach", "role": "smoke", "local_path": null, "source": "https://github.com/pierotofy/drone_dataset_brighton_beach", "images": 18, "license": "unverified"},
+    {"id": "odm_aukerman", "role": "smoke", "local_path": null, "source": "https://github.com/OpenDroneMap/odm_data_aukerman", "images": 77, "license": "unverified"},
+    {"id": "odm_toledo", "role": "smoke", "local_path": null, "source": "https://github.com/OpenDroneMap/odm_data_toledo", "images": 87, "license": "unverified"},
+    {"id": "odm_helenenschacht", "role": "smoke", "local_path": null, "source": "https://github.com/OpenDroneMap/odm_data_helenenschacht", "camera": "Autel Evo II Pro RTK", "images": 176, "georef": ["exif_gps", "gcp"], "license": "unverified"},
+    {"id": "odm_waterbury", "role": "smoke", "local_path": null, "source": "https://github.com/OpenDroneMap/odm_data_waterbury", "images": 248, "license": "unverified"},
+    {"id": "odm_shitan_tw", "role": "smoke", "local_path": null, "source": "https://drive.google.com/open?id=1Spu1F713Tw-z1XMdnrlD6NT4EhhFy2Lj", "country": "TW", "images": 493, "license": "unverified"},
+    {"id": "odm_zoo", "role": "smoke", "local_path": null, "source": "https://github.com/OpenDroneMap/odm_data_zoo", "images": 524, "license": "unverified"},
+    {"id": "odm_ziegeleipark", "role": "smoke", "local_path": null, "source": "https://github.com/zivillian/odm_ziegeleipark", "images": 7169, "license": "unverified", "note": "buyuk olcek / kaynak kisiti testi"},
+    {"id": "tnt_caterpillar", "role": "out_of_scope", "local_path": "datasets/tanks_and_temples/caterpillar"},
+    {"id": "temple", "role": "out_of_scope", "local_path": "datasets/temple"},
+    {"id": "sceaux", "role": "out_of_scope", "local_path": "datasets/sceaux"}
+  ]
+}

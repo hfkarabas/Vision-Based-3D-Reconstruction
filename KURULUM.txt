@@ -1,0 +1,41 @@
+MISSION OMEGA — KULLANIM (12 KASIM 2026)
+
+EN KISA KURULUM: MISSION_OMEGA_270MIN_PACKAGE.zip dosyasını C:\projects\Vision-Based-3D-Reconstruction klasörüne AÇ (zip içindeki klasör yapısını koruyarak). Böylece prompt, çalıştırıcı ve araştırma kaynakları aynı anda doğru yerlere konur.
+
+BU DOSYALARIN YAPTIĞI İŞ:
+- CODEX_MISSION_OMEGA_270MIN.txt : Codex için TEK ANA GÖREV PROMPTU.
+- RUN_MISSION_OMEGA_270MIN.ps1 : Aynı görevi en çok 270 dakikalık pencere içinde çalıştırır, erken biten oturum varsa birkaç kez otomatik devam ettirir; eski proje dosyalarını bilinçli olarak silmez.
+
+1) İki dosyayı aşağıdaki şekilde kopyala:
+   C:\projects\Vision-Based-3D-Reconstruction\MISSION_OMEGA_PROMPT.txt
+   C:\projects\Vision-Based-3D-Reconstruction\RUN_MISSION_OMEGA_270MIN.ps1
+   (Yukarıdaki ilk dosya, indirilen CODEX_MISSION_OMEGA_270MIN.txt'nin yeni adıdır.)
+
+2) Önceki araştırma dosyaları henüz yerel projede değilse şuraya koy:
+   Documentation\uav_technical_decision.md
+   Documentation\uav_literature_screening.md
+   ZIP içindeki Documentation\MISSION_OMEGA_SOURCE_RESEARCH klasörü bu iki kaynağı zaten içeriyor; Codex çalışma alanında arayıp bulacak.
+
+3) PowerShell'de:
+   cd C:\projects\Vision-Based-3D-Reconstruction
+   codex login status
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\RUN_MISSION_OMEGA_270MIN.ps1 -MaxMinutes 270
+
+   NOT: ExecutionPolicy Bypass yalnızca bu PowerShell süreci için geçerlidir; kalıcı sistem ayarı değildir. İndirdiğin scripti çalıştırmadan önce incele.
+   Codex'e önerilen --approve-for-me parametresi bazı ayrıcalıklı/ortam dışı işlemleri yine engelleyebilir; bu güvenlik için kasıtlıdır. Yönetici yetkisi gerekiyorsa bunu kullanıcı onayı dışında zorlamaz.
+
+4) Gece Task Scheduler ile çalıştıracaksan, önceki Codex-Mission0-0240 görevinin aynı gece tekrar çalışmadığından emin ol; iki büyük işlem RAM/disk için çakışmasın. Yeni görevde:
+   Program/script: powershell.exe
+   Arguments: -NoProfile -ExecutionPolicy Bypass -File "C:\projects\Vision-Based-3D-Reconstruction\RUN_MISSION_OMEGA_270MIN.ps1" -MaxMinutes 270
+   Start in: C:\projects\Vision-Based-3D-Reconstruction
+   Kullanıcı hesabı: Codex girişini yaptığın hesap.
+   Gerekliyse görev süresini en çok 4 saat 30 dakika olarak ayarla.
+
+5) Sonuçlara bak:
+   outputs\mission-omega\README_OPEN_FIRST.md
+   outputs\mission-omega\mission_status.json
+   outputs\mission-omega\runner\...
+   outputs\mission-omega\asset\...
+   outputs\mission-omega\preview\...
+
+DİKKAT: 270 dakika BİR ÜST SINIRDIR. Codex'in 270 dakika boyunca kesintisiz çalışacağını veya görsel olarak iyi model üreteceğini hiçbir prompt garanti edemez. Çalışma sonunda 'PASS' yazan alanların dosyalar/ekran görüntüleriyle doğrulanması ve son GLB'nin senin tarafından görülmesi gerekir. Codex model kaynaklarını ve ChatGPT plan kullanım limitlerini ayrıca etkileyebilir.

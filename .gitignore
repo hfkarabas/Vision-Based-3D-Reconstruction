@@ -186,3 +186,6 @@ datasets/
 outputs/
 experiments/
 pytest-cache-files-*/
+
+# Third-party papers (copyright) - kept locally only
+deliverables/kaynakca/
