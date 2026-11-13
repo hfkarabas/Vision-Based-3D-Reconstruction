@@ -9,7 +9,7 @@
     "out_of_scope": "UAV degil; yalnizca eski pipeline testleri"
   },
   "datasets": [
-    {"id": "sheffield_cross", "role": "tune", "local_path": "datasets/omega-terrain-validation/sheffield", "source": "https://github.com/pierotofy/drone_dataset_sheffield_cross", "country": "GB", "camera": "DJI FC300S", "images": 172, "georef": ["exif_gps", "gcp"], "reference": null, "license": "Unlicense"},
+    {"id": "sheffield_cross", "role": "tune", "local_path": "datasets/omega-terrain-validation/sheffield/full", "source": "https://github.com/pierotofy/drone_dataset_sheffield_cross", "country": "US (Florida, 28.04N -82.70E; not Sheffield UK)", "camera": "DJI FC300S", "images": 172, "georef": ["exif_gps", "gcp"], "reference": null, "license": "Unlicense"},
     {"id": "airzoo_rural_s2", "role": "tune", "local_path": "datasets/airzoo/rural/Scene2", "source": "https://huggingface.co/datasets/RingoWRW97/AirZoo-Real", "country": "CN", "camera": "DJI M4T", "images": 190, "georef": ["exif_gps", "rtk"], "reference": "dsm", "license": "unverified"},
     {"id": "airzoo_urban_s1", "role": "tune", "local_path": "datasets/airzoo/urban/Scene1", "source": "https://huggingface.co/datasets/RingoWRW97/AirZoo-Real", "country": "CN", "camera": "DJI M4T", "images": 161, "georef": ["exif_gps", "rtk"], "reference": "dsm", "license": "unverified"},
     {"id": "usegeo_1", "role": "tune", "local_path": null, "source": "https://github.com/3DOM-FBK/usegeo", "country": "unverified", "camera": "unverified, 7952x5304", "images": 224, "georef": ["poses"], "reference": "lidar", "license": "CC-BY-NC-SA-4.0"},
