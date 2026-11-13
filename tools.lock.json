@@ -1,0 +1,17 @@
+{
+  "odm": {
+    "version": "3.6.2",
+    "url": "https://github.com/OpenDroneMap/ODM/releases/download/v3.6.2/ODM_Setup_3.6.2.exe",
+    "sha256": "c9dbfabf0d066529a7b6c753fd45bf3366a0314266160cd677373bab4caff294",
+    "size": 244864104,
+    "install": "inno",
+    "check": "VERSION"
+  },
+  "roofer": {
+    "version": "1.0.0",
+    "url": "https://github.com/3DBAG/roofer/releases/download/v1.0.0/roofer-windows-x86_64-v1.0.0.zip",
+    "sha256": "143413f13f347138dae731b345b8bcdc70f66e3f8bf77da260068f577b40ae7f",
+    "size": 13272038,
+    "install": "zip"
+  }
+}

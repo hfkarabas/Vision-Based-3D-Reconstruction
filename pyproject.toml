@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "vision3d"
 version = "0.1.0"
-description = "CPU image matching and calibrated incremental sparse reconstruction"
+description = "UAV terrain and building reconstruction: thin orchestration over ODM and Roofer (uav3d); legacy vision3d pipeline kept for comparison"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "numpy==2.2.6", "scipy==1.15.3", "opencv-contrib-python==4.11.0.86",
@@ -14,9 +14,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest==8.3.5"]
+gis = [
+  "rasterio==1.5.2", "geopandas==1.2.0", "pyogrio==0.13.0", "shapely==2.2.0",
+  "pyproj==3.8.0", "laspy[lazrs]>=2.6,<3", "psutil==7.2.2", "requests==2.34.2",
+]
 
 [project.scripts]
 vision3d = "vision3d.cli:main"
+uav3d = "uav3d.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
