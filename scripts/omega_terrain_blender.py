@@ -103,10 +103,16 @@ def urban():
     shared.main()
 
 
-def import_mesh(path):
+def import_mesh(path, offset=None):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(path.resolve()))
-    return shared.meshes()
+    objects = shared.meshes()
+    if offset is not None:
+        for obj in bpy.context.scene.objects:
+            if obj.parent is None:
+                obj.location += Vector(offset)
+        bpy.context.view_layer.update()
+    return objects
 
 
 def terrain_asset(args):
@@ -149,6 +155,14 @@ def lighting():
 
 
 def comparison(args):
+    if bool(args.before_grid) != bool(args.after_grid):
+        raise ValueError("Provide both coordinate manifests for an origin-aware comparison.")
+    offset = None
+    if args.before_grid:
+        before_grid, after_grid = map(shared.read, (args.before_grid, args.after_grid))
+        if before_grid["crs"] != after_grid["crs"]:
+            raise ValueError("Comparison assets must have the same projected CRS.")
+        offset = np.asarray(after_grid["origin_enu"]) - before_grid["origin_enu"]
     before = import_mesh(args.before)
     before_points = np.concatenate([shared.world_vertices(obj) for obj in before])
     low, high = before_points.min(axis=0), before_points.max(axis=0)
@@ -178,7 +192,7 @@ def comparison(args):
     stats = {}
     cameras = {}
     for label, path in (("before", args.before), ("after", args.after)):
-        objects = import_mesh(path)
+        objects = import_mesh(path, offset if label == "after" else None)
         terrain = [obj for obj in objects if not obj.get("building_id")]
         terrain_triangles = 0
         degenerate = 0
@@ -205,7 +219,10 @@ def comparison(args):
             cameras[name] = dict(position=list(cam.location), euler=list(cam.rotation_euler), ortho_scale=cam.data.ortho_scale)
             scene.render.filepath = str(out / f"{name}_{label}.png")
             bpy.ops.render.render(write_still=True)
-    shared.write(out / "validation.json", dict(geometry=stats, cameras=cameras, fixed_comparison=True))
+    shared.write(out / "validation.json", dict(
+        geometry=stats, cameras=cameras, fixed_comparison=True,
+        after_origin_offset_m=offset.tolist() if offset is not None else None,
+    ))
 
 
 def main():
@@ -219,6 +236,8 @@ def main():
     for name in ("before", "after", "output"):
         compare.add_argument(f"--{name}", type=Path, required=True)
     compare.add_argument("--views", type=Path)
+    compare.add_argument("--before-grid", type=Path)
+    compare.add_argument("--after-grid", type=Path)
     compare.add_argument("--local-only", action="store_true")
     compare.set_defaults(run=comparison)
     args = cli.parse_args(sys.argv[sys.argv.index("--")+1:])

@@ -83,6 +83,34 @@ def overlay(args):
                                              driver="GeoJSON", index=False)
 
 
+def foundations(args):
+    with rasterio.open(args.rgb) as src:
+        rgb = np.moveaxis(src.read([1, 2, 3]), 0, -1)
+        inverse, crs = ~src.transform, src.crs
+    records = json.loads(args.validation.read_text(encoding="utf-8"))
+    results = {row["building_id"]: row["status"] for row in records if row.get("building_id")}
+    source = json.loads(args.projected_assessment.read_text(encoding="utf-8"))
+    features = gpd.GeoDataFrame.from_features(source, crs=crs)
+    features["blender_status"] = features["building_id"].map(results).fillna("not_eligible")
+    image = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(image)
+    for feature in features.itertuples():
+        poly = feature.geometry
+        color = "#7aff38" if feature.blender_status == "built" else "#ffab47"
+        draw.line([inverse * xy for xy in poly.exterior.coords], fill=color, width=2)
+        number = feature.building_id.removeprefix("Building_")
+        draw.text(inverse * poly.representative_point().coords[0], number, fill=color,
+                  stroke_width=2, stroke_fill="#202020")
+    draw.rectangle((10, 10, 360, 54), fill="#202020")
+    draw.text((18, 17), "Green: Blender foundation and roof checks passed", fill="#7aff38")
+    draw.text((18, 35), "Orange: detected candidate rejected by a geometry check", fill="#ffab47")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    image.save(args.output)
+    features.drop(columns=["foundation_triangles_xy"], errors="ignore").to_crs(4326).to_file(
+        args.output.with_name("building_footprints.geojson"), driver="GeoJSON", index=False,
+    )
+
+
 def cross_section(args):
     start, end = np.array(args.endpoints, dtype=float).reshape(2, 2)
     positions = np.linspace(start, end, 101)
@@ -129,6 +157,10 @@ def main():
     render.add_argument("--volumes", type=Path)
     render.add_argument("--projected-assessment", type=Path)
     render.set_defaults(run=overlay)
+    verified = commands.add_parser("foundations")
+    for name in ("rgb", "projected-assessment", "validation", "output"):
+        verified.add_argument(f"--{name}", type=Path, required=True)
+    verified.set_defaults(run=foundations)
     profile = commands.add_parser("cross-section")
     profile.add_argument("--rasters", nargs="+", type=Path, required=True)
     profile.add_argument("--names", nargs="+", required=True)

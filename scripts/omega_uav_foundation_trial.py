@@ -16,7 +16,8 @@ from shapely.geometry import MultiPoint
 from omega_terrain_cleanup import aligned, interpolate, raster, save_raster
 
 
-def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_cells=0, surrounded=False):
+def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_cells=0,
+            surrounded=False, preserve_observed=False):
     if not 0 < radius <= 8:
         raise ValueError("Foundation interpolation must be bounded to at most 8 m.")
     base, profile = raster(ground / "dtm.tif")
@@ -61,9 +62,16 @@ def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_c
     inferred = target & support & np.isfinite(interpolated)
     # Keep holes where the bounded interpolation cannot establish a foundation.
     result = np.where(target, np.where(inferred, interpolated, np.nan), base)
+    direct = np.zeros_like(target)
+    if preserve_observed:
+        with rasterio.open(ground / "observed.tif") as source:
+            direct = (source.read(1) > 0) & np.isfinite(base)
+        # A roof proposal is not grounds to replace a supported ground measurement.
+        result[direct] = base[direct]
+        inferred &= ~direct
     output.mkdir(parents=True, exist_ok=False)
     save_raster(output / "dtm.tif", result, profile)
-    save_raster(output / "observed.tif", anchors & np.isfinite(result), profile, mask=True)
+    save_raster(output / "observed.tif", (anchors | direct) & np.isfinite(result), profile, mask=True)
     save_raster(output / "inferred_foundation.tif", inferred, profile, mask=True)
     origin = json.loads((ground / "complete.json").read_text(encoding="utf-8"))["origin"]
     with np.load(ground / "terrain.npz") as terrain:
@@ -75,6 +83,7 @@ def prepare(ground, dense, polygons, output, radius, enclosed_gap_m=0, closing_c
                   enclosed_gap_max_m=enclosed_gap_m,
                   closing_cells=closing_cells,
                   require_surrounding_anchor_hull=surrounded,
+                  preserve_observed_ground=preserve_observed,
                   maximum_distance_m=float(distance[inferred].max()) if inferred.any() else None,
                   new_cells=int((inferred & ~np.isfinite(base)).sum()),
                   observed_ground_under_roof=False)
@@ -90,7 +99,7 @@ def assemble(args):
     args.output.mkdir(parents=True, exist_ok=False)
     prepared = args.output / "ground"
     prepare(args.ground, args.dense, args.polygons, prepared, args.radius,
-            args.enclosed_gap_m, args.closing_cells, args.surrounded)
+            args.enclosed_gap_m, args.closing_cells, args.surrounded, args.preserve_observed)
     out = args.output / "buildings"
     out.mkdir()
     for name in ("terrain_photo.png", "grid.json"):
@@ -119,6 +128,8 @@ if __name__ == "__main__":
     parser.add_argument("--enclosed-gap-m", type=float, default=0)
     parser.add_argument("--closing-cells", type=int, choices=(0, 1, 2), default=0)
     parser.add_argument("--surrounded", action="store_true")
+    parser.add_argument("--preserve-observed", action="store_true",
+                        help="Keep directly supported DTM cells even inside roof candidate buffers.")
     for name in ("asset-template", "orthophoto", "inference", "pdal", "blender"):
         parser.add_argument(f"--{name}", type=lambda path: Path(path).resolve())
     args = parser.parse_args()
@@ -130,4 +141,4 @@ if __name__ == "__main__":
         assemble(args)
     else:
         prepare(args.ground, args.dense, args.polygons, args.output, args.radius,
-                args.enclosed_gap_m, args.closing_cells, args.surrounded)
+                args.enclosed_gap_m, args.closing_cells, args.surrounded, args.preserve_observed)

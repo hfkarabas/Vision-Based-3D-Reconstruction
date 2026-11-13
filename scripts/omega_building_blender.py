@@ -332,6 +332,9 @@ def main():
     terrain_input = parser.add_mutually_exclusive_group(required=True)
     terrain_input.add_argument("--terrain", type=Path)
     terrain_input.add_argument("--height-grid", type=Path)
+    terrain_input.add_argument("--dem-mesh", type=Path,
+                               help="PLY in local ENU metres from the Qgis2threejs DEM adapter.")
+    parser.add_argument("--dem-manifest", type=Path)
     parser.add_argument("--terrain-validation", type=Path)
     parser.add_argument("--name", default="terrain_white_buildings")
     parser.add_argument("--max-burial", type=float, default=4)
@@ -352,6 +355,15 @@ def main():
         if prior["crs"] != grid["crs"] or not np.allclose(prior["geospatial_origin"], grid["origin_enu"], rtol=0, atol=0.01):
             raise ValueError("The existing terrain uses a different CRS or local origin.")
         bpy.ops.import_scene.gltf(filepath=str(args.terrain.resolve()))
+    elif args.dem_mesh:
+        if not args.dem_manifest:
+            raise ValueError("A DEM mesh requires its coordinate manifest.")
+        source = read(args.dem_manifest)
+        if (source["crs"] != grid["crs"] or
+                not np.allclose(source["origin_enu"], grid["origin_enu"], rtol=0, atol=0.001) or
+                not np.allclose(source["bounds"], grid["bounds"], rtol=0, atol=0.001)):
+            raise ValueError("DEM mesh CRS, bounds or local origin differ from the scene grid.")
+        bpy.ops.wm.ply_import(filepath=str(args.dem_mesh.resolve()))
     else:
         terrain_from_grid(args.height_grid)
     terrain = meshes()
@@ -388,6 +400,8 @@ def main():
         print(f"{len(built)} buildings passed native Blender and foundation checks.")
         return
     scene = bpy.context.scene
+    scene.unit_settings.system = "METRIC"
+    scene.unit_settings.scale_length = 1.0
     scene["projected_crs"] = grid["crs"]
     scene["origin_east_north_up_m"] = grid["origin_enu"]
     camera_setup(terrain, list(buildings.objects), out / "preview")
