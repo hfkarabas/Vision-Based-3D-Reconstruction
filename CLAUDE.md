@@ -44,6 +44,14 @@ Araştırma konusu (tez başlığı, değiştirilmez):
 - Datasetler (`datasets/`): airzoo (rural/urban), omega-terrain-validation (sheffield, jb3d), sceaux, temple, tanks_and_temples/caterpillar, middlebury-motorcycle.
 - Bağımsız COLMAP baseline: Rural 190/190, Urban 161/161 (`Documentation/research/BASELINE_RESULTS.md`).
 
+### 2026-11-13 ilerleme
+
+- Literatür taraması (plan 1) tamam: Claude Doc https://claude.ai/artifact/PPwpvVYfQJiud2e7Uvox8b. Karar: ODM/OpenMVS omurga, Roofer LoD2.2, PDAL SMRF; özgün katkı = bütçe altında karo bazlı kalite geri beslemeli yeniden yoğunlaştırma.
+- Dataset protokolü (plan 2) tamam: `Documentation/research/DATASET_PROTOCOL.md`, `configs/dataset_registry.json`. Yerel tüm setler "ayar" rolünde (kirli). ODMdata 6 set `datasets/odm/`; Ziegeleipark ve UseGeo (`datasets/usegeo/`, sertifikası süresi dolmuş sunucu, kullanıcı onayıyla) indirildi/iniyor.
+- Temizlik (plan 4) `claude/cleanup` dalında yapıldı: `Documentation/CLEANUP_PLAN.md`; arşiv `C:\projects\_archive\vision3d-2026-11-13\`. Üretimde kalan: 21 `scripts/omega_*` + `src/vision3d`.
+- Kaliteyi bozan bulunan ayar: `configs/omega_reusable_uav.json` → `dense_max_image_size: 800`, sabit metrik hücre boyutları (GSD'den bağımsız). Yeni mimaride düzeltilecek.
+- Bu makine: 15,6 GB RAM.
+
 ## Plan (öncelik sırası)
 
 1. **Sistematik literatür taraması** (Docs olarak):
