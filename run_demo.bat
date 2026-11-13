@@ -6,5 +6,5 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-".venv\Scripts\python.exe" -m vision3d.demo
+".venv\Scripts\python.exe" -m vision3d.demo --uav
 if errorlevel 1 pause

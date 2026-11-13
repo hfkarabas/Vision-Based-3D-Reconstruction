@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--validation", type=Path, required=True)
     parser.add_argument("--render", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--require-collections", action="store_true")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1 :])
     expected = json.loads(args.validation.read_text(encoding="utf-8"))
     bpy.ops.wm.open_mainfile(filepath=str(args.scene.resolve()))
@@ -33,6 +34,14 @@ def main():
         or scene.camera is None
     ):
         raise ValueError("The saved BLEND scene failed its object, texture, UV or camera checks.")
+    terrain_collection = bpy.data.collections.get("Photographic terrain")
+    building_collection = bpy.data.collections.get("Buildings - detected roof LOD1")
+    if args.require_collections and (
+        terrain_collection is None or building_collection is None
+        or set(terrain_collection.objects) != set(terrain)
+        or set(building_collection.objects) != set(buildings)
+    ):
+        raise ValueError("The saved BLEND scene lost the separate terrain and building collections.")
     scene.render.filepath = str(args.render.resolve())
     bpy.ops.render.render(write_still=True)
     report = dict(
@@ -42,6 +51,7 @@ def main():
         terrain=len(terrain),
         texture_sizes=[list(image.size) for image in images],
         terrain_textures_packed=True,
+        separate_collections=bool(args.require_collections),
         render=str(args.render.resolve()),
     )
     args.report.write_text(json.dumps(report, indent=2), encoding="utf-8")
