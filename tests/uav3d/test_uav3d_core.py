@@ -31,6 +31,13 @@ def test_split_only_when_load_exceeds_budget():
     assert large["flags"][large["flags"].index("--split") + 1] == "540"
 
 
+def test_threads_limit_is_applied_and_validated():
+    p = plan.odm_plan({"count": 10, "mean_megapixels": 12.0}, 12, CFG, n_threads=3)
+    assert p["threads"] == 3 and p["flags"][p["flags"].index("--max-concurrency") + 1] == "3"
+    with pytest.raises(ValueError):
+        plan.threads(0)
+
+
 def test_resolution_scales_with_gsd_and_is_omitted_without_metric_gsd():
     assert plan.resolution_flags(0.025, CFG) == ["--orthophoto-resolution", "2.50", "--dem-resolution", "5.00"]
     assert plan.resolution_flags(None, CFG) == []
