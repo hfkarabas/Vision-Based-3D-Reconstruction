@@ -17,11 +17,24 @@
     "osm_retries_per_endpoint": 3,
     "min_side_gsd": 8,
     "min_area_m2": 10,
-    "min_coverage": 0.9
+    "min_coverage": 0.9,
+    "pointcloud": {
+      "enabled": true,
+      "cell_gsd_factor": 10,
+      "cell_min_m": 0.1,
+      "cell_max_m": 0.5,
+      "close_m": 1.0,
+      "open_m": 1.0,
+      "simplify_cells": 1.5,
+      "rectangularity": 0.8,
+      "max_osm_overlap": 0.3
+    }
   },
   "roofer": {
     "building_class": 6,
     "ground_class": 2,
-    "lods": ["--lod12", "--lod22"]
+    "lods": ["--lod12", "--lod22"],
+    "min_roof_height_m": 2.5,
+    "low_confidence_rmse_m": 1.0
   }
 }

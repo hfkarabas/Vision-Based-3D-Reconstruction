@@ -87,25 +87,87 @@ def covered(footprints: gpd.GeoDataFrame, dsm_path, min_fraction: float) -> gpd.
     return pd.Series(fractions, index=footprints.index) >= min_fraction
 
 
-def prepare(dsm_path, gsd_m: float | None, cfg: dict, out_gpkg) -> dict:
-    """Write roofprints for the reconstructed area to ``out_gpkg``; return a summary."""
-    fcfg = cfg["footprints"]
+def regularise(poly: Polygon, rectangularity: float) -> Polygon:
+    """Replace a ragged outline by its minimum rotated rectangle when it fills that rectangle
+    well enough (most roofprints are rectangular); otherwise keep the simplified outline."""
+    rect = poly.minimum_rotated_rectangle
+    return rect if rect.area > 0 and poly.area / rect.area >= rectangularity else poly
+
+
+def from_pointcloud(laz_path, crs_wkt: str, gsd_m: float | None, pcfg: dict, building_class: int,
+                    min_area: float) -> gpd.GeoDataFrame:
+    """Roofprints from the building-classified points: occupancy raster -> morphological
+    clean-up -> connected regions -> simplified polygons. Cell size and kernels scale with GSD."""
+    import laspy
+    from rasterio.features import shapes
+    from rasterio.transform import from_origin
+    from scipy import ndimage
+
+    las = laspy.read(laz_path)
+    keep = np.asarray(las.classification) == building_class
+    x, y = np.asarray(las.x)[keep], np.asarray(las.y)[keep]
+    if len(x) == 0:
+        return gpd.GeoDataFrame({"source": []}, geometry=[], crs=crs_wkt)
+    cell = float(np.clip((gsd_m or 0.05) * pcfg["cell_gsd_factor"], pcfg["cell_min_m"], pcfg["cell_max_m"]))
+    # pad by more than the largest kernel so closing does not erode regions at the raster edge
+    pad = (max(pcfg["close_m"], pcfg["open_m"]) + 2 * cell)
+    x0, y1 = x.min() - pad, y.max() + pad
+    x_max, y_min = x.max() + pad, y.min() - pad
+    cols = int((x_max - x0) / cell) + 1
+    rows = int((y1 - y_min) / cell) + 1
+    grid = np.zeros((rows, cols), dtype=bool)
+    grid[((y1 - y) / cell).astype(int), ((x - x0) / cell).astype(int)] = True
+
+    def disk(radius_m: float) -> np.ndarray:
+        r = max(1, int(round(radius_m / cell)))
+        yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
+        return xx * xx + yy * yy <= r * r
+
+    grid = ndimage.binary_closing(grid, structure=disk(pcfg["close_m"]))
+    grid = ndimage.binary_fill_holes(grid)
+    grid = ndimage.binary_opening(grid, structure=disk(pcfg["open_m"]))
+    transform = from_origin(x0, y1, cell, cell)
+    polys = []
+    for geom, value in shapes(grid.astype(np.uint8), mask=grid, transform=transform):
+        if value:
+            poly = Polygon(geom["coordinates"][0]).simplify(cell * pcfg["simplify_cells"])
+            if poly.is_valid and poly.area >= min_area:
+                polys.append(regularise(poly, pcfg["rectangularity"]))
+    gdf = gpd.GeoDataFrame({"source": ["pointcloud"] * len(polys)}, geometry=polys, crs=crs_wkt)
+    gdf.attrs["cell_m"] = round(cell, 3)
+    return gdf
+
+
+def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg) -> dict:
+    """Write roofprints for the reconstructed area to ``out_gpkg``; return a summary.
+
+    OSM polygons are used where they exist; point-cloud roofprints fill the gaps, kept only
+    where they do not substantially overlap an OSM polygon."""
+    fcfg, pcfg = cfg["footprints"], cfg["footprints"]["pointcloud"]
     bbox, crs_wkt = dsm_area(dsm_path)
-    osm = fetch_osm(bbox, fcfg["osm_overpass_urls"], fcfg["osm_retries_per_endpoint"])
-    summary = {"source": "osm", "endpoint": osm.attrs["endpoint"], "bbox_wgs84": [round(v, 6) for v in bbox],
-               "osm_polygons": len(osm)}
-    if osm.empty:
-        summary["kept"] = 0
-        return summary
-    fp = osm.to_crs(crs_wkt)
-    # dissolve exact duplicates / overlaps from way+relation double mapping
-    fp = fp[~fp.geometry.duplicated()].reset_index(drop=True)
     min_area = max((fcfg["min_side_gsd"] * gsd_m) ** 2 if gsd_m else 0.0, fcfg["min_area_m2"])
+    osm = fetch_osm(bbox, fcfg["osm_overpass_urls"], fcfg["osm_retries_per_endpoint"])
+    summary = {"endpoint": osm.attrs["endpoint"], "bbox_wgs84": [round(v, 6) for v in bbox],
+               "osm_polygons": len(osm), "min_area_m2": round(min_area, 2)}
+    fp = osm.to_crs(crs_wkt) if len(osm) else gpd.GeoDataFrame({"source": []}, geometry=[], crs=crs_wkt)
+    fp = fp[~fp.geometry.duplicated()].assign(source="osm")
     fp = fp[fp.geometry.area >= min_area]
-    keep = covered(fp, dsm_path, fcfg["min_coverage"]) if len(fp) else []
-    fp = fp[keep] if len(fp) else fp
-    summary.update(min_area_m2=round(min_area, 2), kept=len(fp),
+    if pcfg["enabled"] and laz_path:
+        pc = from_pointcloud(laz_path, crs_wkt, gsd_m, pcfg, cfg["roofer"]["building_class"], min_area)
+        summary["pointcloud_cell_m"] = pc.attrs.get("cell_m")
+        summary["pointcloud_polygons"] = len(pc)
+        if len(fp) and len(pc):
+            osm_union = unary_union(list(fp.geometry))
+            overlap = pc.geometry.intersection(osm_union).area / pc.geometry.area
+            pc = pc[overlap < pcfg["max_osm_overlap"]]
+        fp = pd.concat([fp, pc], ignore_index=True)
+    fp = gpd.GeoDataFrame(fp.reset_index(drop=True), geometry="geometry", crs=crs_wkt)
+    if len(fp):
+        fp = fp[covered(fp, dsm_path, fcfg["min_coverage"])]
+    summary.update(kept=len(fp), kept_by_source=fp["source"].value_counts().to_dict() if len(fp) else {},
                    kept_area_m2=round(float(unary_union(list(fp.geometry)).area), 1) if len(fp) else 0.0)
     if len(fp):
+        fp = fp.reset_index(drop=True)
+        fp["fp_id"] = [f"fp{i:05d}" for i in range(len(fp))]  # Roofer --id-attribute
         fp.to_file(out_gpkg, layer="roofprints", driver="GPKG")
     return summary
