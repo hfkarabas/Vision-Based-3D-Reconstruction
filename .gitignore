@@ -192,3 +192,6 @@ deliverables/kaynakca/
 
 # Pinned external tools installed by setup.ps1
 .tools/
+
+# Roofer trace written to the working directory
+roofer.log.json
