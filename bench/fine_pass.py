@@ -23,14 +23,6 @@ from uav3d import refine, tools
 from uav3d.record import run_measured
 
 
-def omvs(o, args, log, cwd):
-    info = run_measured([str(o.exe("DensifyPointCloud")), *map(str, args), "-v", "0", "--cuda-device", "-2"],
-                        log, cwd=str(cwd), env=o.env())
-    if info["returncode"] != 0:
-        raise refine.RefineError(f"DensifyPointCloud {args[:2]} failed (exit {info['returncode']}); see {log}")
-    return {"wall_s": info["wall_s"], "peak_rss_gb": info["peak_rss_gb"]}
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("project", type=Path)
@@ -65,11 +57,6 @@ def main() -> int:
         rec["export_openmvs"] = {"wall_s": info["wall_s"], "peak_rss_gb": info["peak_rss_gb"]}
     if not scene.is_file():  # image paths in ODM's scene.mvs are absolute; the copy reads the same images
         shutil.copy2(a.scene or odm_scene, scene)
-    dmaps = out / "depthmaps"
-    dmaps.mkdir(exist_ok=True)
-    (out / "Densify.ini").write_text("Optimize = 7\nMin Views Filter = 1\n", encoding="utf-8")
-    (out / "subscene.ini").write_text("Optimize = 0\nEstimation Geometric Iters = 0\nMin Views Filter = 1\n",
-                                      encoding="utf-8")
     max_res = refine.undistorted_max_size(project)
     level, side = refine.effective_size(max_res, a.level)
     coarse_dmap = next((project / "opensfm" / "undistorted" / "openmvs" / "depthmaps").glob("*.dmap"), None)
@@ -78,43 +65,17 @@ def main() -> int:
     if a.scene is None and not a.coarse and coarse_side is not None and side <= coarse_side:
         raise SystemExit(f"fine pass would not be finer: {side} px vs ODM's {coarse_side} px (level {a.level} "
                          f"-> effective {level}); use a lower --level")
-    common = ["--resolution-level", a.level, "--max-resolution", max_res,
-              "--sub-resolution-levels", 2, "--number-views-fuse", 2, "--max-threads", a.threads,
-              "--archive-type", 3, "-w", dmaps]
-
-    if "depthmaps" not in rec:
-        rec["depthmaps"] = omvs(o, [scene, *common, "--min-resolution", 640, "--dense-config-file",
-                                    out / "Densify.ini", "--fusion-mode", 1], log, out)
-        rec["depthmaps"]["count"] = len(list(dmaps.glob("*.dmap")))
-        save()
-    subs = sorted(out.glob("scene_[0-9][0-9][0-9][0-9].mvs"))
-    if not subs:
-        rec["split"] = omvs(o, [scene, "--sub-scene-area", a.sub_scene_area, "--max-threads", a.threads,
-                                "-w", dmaps], log, out)
-        subs = sorted(out.glob("scene_[0-9][0-9][0-9][0-9].mvs"))
-        save()
-    rec.setdefault("subscenes", {})
-    plys = []
-    for s in subs:
-        done = s.with_name(s.stem + "_dense_dense_filtered.ply")
-        if not done.is_file():
-            e = omvs(o, [s, *common, "--dense-config-file", out / "subscene.ini", "--postprocess-dmaps", 0,
-                         "--geometric-iters", 0], log, out)
-            f = omvs(o, ["--filter-point-cloud", -20, "-i", s.with_name(s.stem + "_dense.mvs"),
-                         "--max-threads", a.threads], log, out)
-            rec["subscenes"][s.stem] = {"fuse": e, "filter": f}
-            save()
-        if done.is_file():
-            plys.append(done)
-        print(f"{s.stem}: {'ok' if done.is_file() else 'no PLY'}", flush=True)
+    refine.densify_lowmem(o, scene, out, a.level, max_res, a.threads, log, a.sub_scene_area, rec, save)
+    plys = [Path(p) for p in rec["plys"]]
+    for p in plys:
+        print(f"{p.name}: ok", flush=True)
 
     # the whole pass replaces everything: a crop box far larger than any UAV block (frame = UTM - offset)
     whole = refine.Tile(0, 0, 0, -1e5, -1e5, 1e5, 1e5)
     rec["merge"] = refine.merge(o, None, [(str(p), [whole]) for p in plys], project, out / "fine.laz", log)
-    rec["plys"] = [str(p) for p in plys]
     save()
     print(json.dumps({k: v for k, v in rec.items() if k != "subscenes"}))
-    return 0 if plys and len(plys) == len(subs) else 1
+    return 0 if plys and len(plys) == rec["subscene_count"] else 1
 
 
 if __name__ == "__main__":

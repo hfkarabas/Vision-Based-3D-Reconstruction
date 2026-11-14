@@ -183,6 +183,76 @@ def densify(odm, scene: Path, level: int, max_resolution: int, n_threads: int, l
     return stats
 
 
+SPLIT_MIN_IMAGES = 40  # below this a scene is fused whole (fine level: ~0.15 GB per image)
+
+
+def _omvs(odm, args, log: Path, cwd: Path, n_threads: int) -> dict:
+    info = run_measured([str(odm.exe("DensifyPointCloud")), *map(str, args), "-v", "0", "--cuda-device", "-2"],
+                        log, cwd=str(cwd), env=odm.env(), cpus=n_threads)
+    if info["returncode"] != 0:
+        raise RefineError(f"DensifyPointCloud {[str(x) for x in args[:2]]} failed (exit {info['returncode']}); see {log}")
+    return {"wall_s": info["wall_s"], "peak_rss_gb": info["peak_rss_gb"]}
+
+
+def densify_lowmem(odm, scene: Path, work: Path, level: int, max_resolution: int, n_threads: int, log: Path,
+                   sub_scene_area: int = 660000, rec: dict | None = None, save=lambda: None) -> dict:
+    """ODM's low-memory OpenMVS path (stages/openmvs.py, used there when OpenMVS runs out of memory):
+    (1) depth maps of every image once, without fusion (--fusion-mode 1); (2) split into sub-scenes of
+    bounded sampling area (--sub-scene-area, in pixels at the chosen level, so finer levels give more
+    sub-scenes); (3) fuse and filter each sub-scene from the existing depth maps. Peak memory is bounded by
+    the sub-scene, not by the block. Resumable through ``rec`` (records of finished steps) and the files.
+    Returns ``rec`` with "plys" (one filtered PLY per sub-scene, ODM's reconstruction frame)."""
+    rec = {} if rec is None else rec
+    work.mkdir(parents=True, exist_ok=True)
+    local = work / "scene.mvs"
+    if Path(scene).resolve() != local.resolve() and not local.is_file():
+        import shutil
+        shutil.copy2(scene, local)  # image paths inside are absolute
+    dmaps = work / "depthmaps"
+    dmaps.mkdir(exist_ok=True)
+    (work / "Densify.ini").write_text("Optimize = 7\nMin Views Filter = 1\n", encoding="utf-8")
+    (work / "subscene.ini").write_text("Optimize = 0\nEstimation Geometric Iters = 0\nMin Views Filter = 1\n",
+                                       encoding="utf-8")
+    common = ["--resolution-level", level, "--max-resolution", max_resolution,
+              "--sub-resolution-levels", 2, "--number-views-fuse", 2, "--max-threads", n_threads,
+              "--archive-type", 3, "-w", dmaps]
+    if "depthmaps" not in rec:
+        rec["depthmaps"] = _omvs(odm, [local, *common, "--min-resolution", 640, "--dense-config-file",
+                                       work / "Densify.ini", "--fusion-mode", 1], log, work, n_threads)
+        rec["depthmaps"]["count"] = len(list(dmaps.glob("*.dmap")))
+        save()
+    subs = sorted(work.glob("scene_[0-9][0-9][0-9][0-9].mvs"))
+    if rec.get("split", {}).get("whole_scene"):
+        subs = [local]
+    elif not subs:
+        n_img = rec["depthmaps"]["count"]
+        if n_img <= SPLIT_MIN_IMAGES:
+            # small scenes fit in memory whole; OpenMVS's splitter also crashed on them (0xC00000FD)
+            rec["split"] = {"whole_scene": True, "reason": f"{n_img} images <= {SPLIT_MIN_IMAGES}"}
+            subs = [local]
+        else:
+            rec["split"] = _omvs(odm, [local, "--sub-scene-area", sub_scene_area, "--max-threads", n_threads,
+                                       "-w", dmaps], log, work, n_threads)
+            subs = sorted(work.glob("scene_[0-9][0-9][0-9][0-9].mvs"))
+        save()
+    rec.setdefault("subscenes", {})
+    plys = []
+    for s in subs:
+        done = s.with_name(s.stem + "_dense_dense_filtered.ply")
+        if not done.is_file():
+            e = _omvs(odm, [s, *common, "--dense-config-file", work / "subscene.ini", "--postprocess-dmaps", 0,
+                            "--geometric-iters", 0], log, work, n_threads)
+            f = _omvs(odm, ["--filter-point-cloud", -20, "-i", s.with_name(s.stem + "_dense.mvs"),
+                            "--max-threads", n_threads], log, work, n_threads)
+            rec["subscenes"][s.stem] = {"fuse": e, "filter": f}
+            save()
+        if done.is_file():
+            plys.append(done)
+    rec["plys"] = [str(p) for p in plys]
+    rec["subscene_count"] = len(subs)
+    return rec
+
+
 def merge_pipeline(coarse_laz: str | None, refined: list[tuple[str, list[Tile]]], offset: tuple[float, float],
                    srs: str, out_laz: Path, refined_class: int = 1) -> list:
     """PDAL pipeline: coarse points outside every refined group + each group's refined points (shifted to UTM,
