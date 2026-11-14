@@ -28,7 +28,7 @@ Araştırma konusu (tez başlığı, değiştirilmez):
 
 ## Mevcut durum (2026-11-14)
 
-Çalışma dalı: `claude/cleanup` (push edilmedi). Plan adımları 1–4 büyük ölçüde tamam.
+Çalışma dalı: `claude/tree-building` (push edilmedi). Plan adımları 1–4 büyük ölçüde tamam.
 
 ### Yeni akış: `src/uav3d` (üretim yolu)
 
@@ -64,11 +64,23 @@ Doğrulanan: Brighton Beach (18 foto, 2,7 dk, 2,8 GB), Sheffield (172 foto, 36 d
 - Protokol (plan 2): `Documentation/research/DATASET_PROTOCOL.md`, `configs/dataset_registry.json`. Yerel eski setler (Sheffield, AirZoo) = ayar. Genellik: `datasets/odm/` (brighton_beach, aukerman, toledo, helenenschacht, waterbury, zoo; ziegeleipark.zip 29,8 GB MD5 doğrulandı, açılmadı). Hold-out: UseGeo (`datasets/usegeo/`, iniyor; sunucu sertifikası süresi dolmuş, kullanıcı onayıyla doğrulamasız indirildi), JB3D (kısmi), UrbanScene3D/ISPRS Zollern (indirilmedi).
 - Temizlik (plan 4): `Documentation/CLEANUP_PLAN.md`; arşiv `C:\projects\_archive\vision3d-2026-11-13\`.
 
+### 2026-11-14 ilerleme
+
+- **SAM 3 görüntü kanıtı** (`uav3d/detect.py`, "detect" aşaması, ayrı venv `setup.ps1 -WithML`): ortofoto karolarında "building" → `detect/building_score.tif`. Kullanım: (a) bina noktaları SMRF'den saklanır (arazi), (b) görüntü taban izleri + eğilme toleranslı kapsama, (c) kabul edilen izlerde DTM+1 m üstü noktalar sınıf 6'ya (Roofer girdisi). Bina F1 (ayar, IoU≥0,3): Sheffield 0,93→0,95, urban 0,03→0,13, rural 0,00 (rekonstrüksiyon DOM'a göre ~40 m çarpık; etiket uygulanamaz). Ayrıntı `Documentation/research/BUILDING_EVAL.md`. Smoke G1–G4 6/6 geçti.
+- **Disk politikası:** her koşudan sonra ODM ara dosyaları silinir (`odm.prune`); yalnız bölgesel yeniden yoğunlaştırma için `--keep-odm-intermediates`. Proje ~300 GB → ~140 GB boş.
+- **Geometri değerlendirmesi** (`uav3d/evaluate/geometry.py`, Tanks&Temples P/R/F, düz zeminde dikey ofset hizalı): UseGeo-1 (ayar) F = 0,40/0,64/0,90 @ 10/20/50 cm, dikey sapma +0,35 m (ODM öz-kalibrasyonu odak uzaklığını %2,2 büyük buluyor). `Documentation/research/GEOMETRY_EVAL.md`.
+- UseGeo bölünmesi: dataset-1 = ayar (`outputs/tune/usegeo_1`), dataset-2/3 = hold-out (`outputs/holdout/`). `bench/prepare_usegeo.py` geo.txt üretir.
+- UseGeo-2 (327 foto) planlayıcı RAM modelinde bütçeyi aşıyor → split (249/alt model) yolunu ilk kez sınıyor.
+
+## Takvim (30 Kasım makale)
+
+- 15–16 Kas: ürünü dondur. 17–21 Kas: adaptif zamanlayıcı (sabit RAM/süre bütçesi, düşük kaliteli ilk geçiş, referanssız kalite sinyalleri → zayıf bölgeleri yeniden yoğunlaştır; önce fizibilite: OpenMVS ROI/alt sahne veya karo bazlı görüntü alt kümesi). 22–25 Kas: UseGeo-2/3 hold-out, %25/50/75 bütçe; tekdüze düşük / tekdüze yüksek / statik seçiciye karşı. 26–29 Kas: makale. 30 Kas: teslim.
+
 ## Sıradaki işler
 
-1. **Genellik koşusu sonucu:** `bench/run_smoke.ps1 -Threads 10` (2026-11-14 gecesi başlatıldı) → `outputs/smoke/summary.md` (G1–G4). Hataları datasete özel değil, genel kuralla düzelt.
-2. Bina taban izi iyileştirme (ayar setlerinde): ağaç yapışması, tırtıklı sınırlar, birkaç yanlış pozitif.
-3. Ziegeleipark (7 169 foto): split yolunu ilk kez sınar; gece, `--threads 10`.
-4. OpenMVS GPU kullanımı (RTX 5070 / CUDA sürümü).
-5. Değerlendirme modülü `uav3d/evaluate` (UseGeo LiDAR'a göre P/R/F); sonra hipotez deneyi (plan 5).
-6. `src/vision3d` ve eski demo yolunu legacy'ye ayır; `docs/` + `Documentation/` birleştir.
+1. **UseGeo-2/3 gece koşusu** (`bench/run_usegeo_night.ps1 -Threads 10`, 2026-11-14 18:46 başladı) → `outputs/holdout/usegeo_{2,3}/eval_geometry.json`. Split yolu hatasızsa adaptif deney için ara dosyalar duruyor (boş disk ≥90 GB ise).
+2. Bölgesel yeniden yoğunlaştırma fizibilitesi → adaptif zamanlayıcı (araştırma katkısı).
+3. İsteğe bağlı: UseGeo sabit kalibrasyonunu ODM'ye vererek +0,35 m sapmayı gider.
+4. Ağaç katmanı (CHM + tek ağaç tespiti) — zaman kalırsa.
+5. Büyük ölçek: Ziegeleipark diske sığmıyor (zip korunuyor, onaysız silinmez); alternatif UseGeo 3 şeridin birleşimi.
+6. OpenMVS GPU kullanımı; `src/vision3d` legacy ayrımı — düşük öncelik.
