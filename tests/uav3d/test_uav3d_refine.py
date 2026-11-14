@@ -56,3 +56,9 @@ def test_merge_pipeline_replaces_coarse_inside_groups():
     assert shift["matrix"] == "1 0 0 1000.0 0 1 0 2000.0 0 0 1 0 0 0 0 1"
     writer = p[-1]
     assert writer["offset_x"] == 1000.0 and writer["filename"].endswith("out.laz")
+
+def test_merge_pipeline_without_coarse_writes_only_refined():
+    t = refine.Tile(0, 0, 0, 0.0, 0.0, 10.0, 10.0)
+    st = refine.merge_pipeline(None, [("a.ply", [t])], (100.0, 200.0), "EPSG:32633", "o.laz")
+    assert [s["type"] for s in st][0] == "readers.ply"
+    assert st[-2]["inputs"] == ["a0"]

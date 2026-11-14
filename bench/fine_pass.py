@@ -19,8 +19,6 @@ import json
 import shutil
 from pathlib import Path
 
-import laspy
-
 from uav3d import refine, tools
 from uav3d.record import run_measured
 
@@ -41,6 +39,8 @@ def main() -> int:
     ap.add_argument("--threads", type=int, default=10)
     ap.add_argument("--sub-scene-area", type=int, default=660000, help="ODM's value (stages/openmvs.py)")
     ap.add_argument("--scene", type=Path, default=None, help="OpenMVS scene to use instead of ODM's (tests)")
+    ap.add_argument("--coarse", action="store_true",
+                    help="build the coarse baseline with this code path (allows a level not finer than ODM's)")
     a = ap.parse_args()
 
     project, out = a.project.resolve(), a.out.resolve()
@@ -55,8 +55,16 @@ def main() -> int:
         rec_path.write_text(json.dumps(rec, indent=1), encoding="utf-8")
 
     scene = out / "scene.mvs"
+    odm_scene = project / "opensfm" / "undistorted" / "openmvs" / "scene.mvs"
+    if a.scene is None and not odm_scene.is_file():  # ODM ran --end-with opensfm: export as its openmvs stage does
+        info = run_measured([str(o.python), "-X", "utf8",
+                             str(o.home / "SuperBuild" / "install" / "bin" / "opensfm" / "bin" / "opensfm_main.py"),
+                             "export_openmvs", str(project / "opensfm")], log, env=o.env())
+        if info["returncode"] != 0 or not odm_scene.is_file():
+            raise refine.RefineError(f"export_openmvs failed (exit {info['returncode']}); see {log}")
+        rec["export_openmvs"] = {"wall_s": info["wall_s"], "peak_rss_gb": info["peak_rss_gb"]}
     if not scene.is_file():  # image paths in ODM's scene.mvs are absolute; the copy reads the same images
-        shutil.copy2(a.scene or project / "opensfm" / "undistorted" / "openmvs" / "scene.mvs", scene)
+        shutil.copy2(a.scene or odm_scene, scene)
     dmaps = out / "depthmaps"
     dmaps.mkdir(exist_ok=True)
     (out / "Densify.ini").write_text("Optimize = 7\nMin Views Filter = 1\n", encoding="utf-8")
@@ -67,7 +75,7 @@ def main() -> int:
     coarse_dmap = next((project / "opensfm" / "undistorted" / "openmvs" / "depthmaps").glob("*.dmap"), None)
     coarse_side = max(refine.dmap_size(coarse_dmap)) if coarse_dmap else None
     rec.update(effective_level=level, side_px=side, coarse_side_px=coarse_side)
-    if a.scene is None and coarse_side is not None and side <= coarse_side:
+    if a.scene is None and not a.coarse and coarse_side is not None and side <= coarse_side:
         raise SystemExit(f"fine pass would not be finer: {side} px vs ODM's {coarse_side} px (level {a.level} "
                          f"-> effective {level}); use a lower --level")
     common = ["--resolution-level", a.level, "--max-resolution", max_res,
@@ -100,12 +108,9 @@ def main() -> int:
             plys.append(done)
         print(f"{s.stem}: {'ok' if done.is_file() else 'no PLY'}", flush=True)
 
-    coarse = project / "odm_georeferencing" / "odm_georeferenced_model.laz"
-    ox, oy = refine.utm_offset(project)
-    h = laspy.open(coarse).header
-    pad = 50.0  # the fine cloud may extend slightly beyond the coarse one
-    whole = refine.Tile(0, 0, 0, h.mins[0] - ox - pad, h.mins[1] - oy - pad, h.maxs[0] - ox + pad, h.maxs[1] - oy + pad)
-    rec["merge"] = refine.merge(o, str(coarse), [(str(p), [whole]) for p in plys], project, out / "fine.laz", log)
+    # the whole pass replaces everything: a crop box far larger than any UAV block (frame = UTM - offset)
+    whole = refine.Tile(0, 0, 0, -1e5, -1e5, 1e5, 1e5)
+    rec["merge"] = refine.merge(o, None, [(str(p), [whole]) for p in plys], project, out / "fine.laz", log)
     rec["plys"] = [str(p) for p in plys]
     save()
     print(json.dumps({k: v for k, v in rec.items() if k != "subscenes"}))

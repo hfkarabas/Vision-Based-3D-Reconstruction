@@ -183,16 +183,20 @@ def densify(odm, scene: Path, level: int, max_resolution: int, n_threads: int, l
     return stats
 
 
-def merge_pipeline(coarse_laz: str, refined: list[tuple[str, list[Tile]]], offset: tuple[float, float],
+def merge_pipeline(coarse_laz: str | None, refined: list[tuple[str, list[Tile]]], offset: tuple[float, float],
                    srs: str, out_laz: Path, refined_class: int = 1) -> list:
     """PDAL pipeline: coarse points outside every refined group + each group's refined points (shifted to UTM,
-    cropped to the group), written as one LAZ in ODM's frame. OpenMVS PLYs carry no SRS, so ODM's is given."""
+    cropped to the group), written as one LAZ in ODM's frame. OpenMVS PLYs carry no SRS, so ODM's is given.
+    Without a coarse cloud only the refined points are written."""
     ox, oy = offset
     area = multipolygon([t for _, g in refined for t in g], ox, oy)
-    stages: list = [{"type": "readers.las", "filename": coarse_laz, "override_srs": srs, "tag": "coarse"},
-                    {"type": "filters.crop", "inputs": ["coarse"], "polygon": area, "a_srs": srs, "outside": True,
-                     "tag": "keep"}]
-    merged = ["keep"]
+    stages: list = []
+    merged = []
+    if coarse_laz:
+        stages += [{"type": "readers.las", "filename": coarse_laz, "override_srs": srs, "tag": "coarse"},
+                   {"type": "filters.crop", "inputs": ["coarse"], "polygon": area, "a_srs": srs, "outside": True,
+                    "tag": "keep"}]
+        merged.append("keep")
     for i, (ply, g) in enumerate(refined):
         stages += [{"type": "readers.ply", "filename": ply, "override_srs": srs, "tag": f"r{i}"},
                    {"type": "filters.transformation", "inputs": [f"r{i}"],
@@ -209,7 +213,7 @@ def merge_pipeline(coarse_laz: str, refined: list[tuple[str, list[Tile]]], offse
     return stages
 
 
-def merge(odm, coarse_laz: str, refined: list[tuple[str, list[Tile]]], project: Path, out_laz: Path,
+def merge(odm, coarse_laz: str | None, refined: list[tuple[str, list[Tile]]], project: Path, out_laz: Path,
           log: Path) -> dict:
     pipeline = merge_pipeline(coarse_laz, refined, utm_offset(project), utm_srs(project), out_laz)
     path = out_laz.with_suffix(".pipeline.json")
