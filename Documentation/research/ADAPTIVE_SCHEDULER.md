@@ -53,6 +53,20 @@ Fizibilite (2026-11-14, ODM 3.6.2'nin OpenMVS/OpenSfM ikilileri, Sheffield sahne
 - Betik: `bench/feasibility/tile_export.py` (ODM Python'u ile, `ODM_HOME` ortam değişkeniyle) → `uav3d/refine.py`'ye
   taşınacak.
 
+## 2a. Ayar sonuçları (UseGeo-1, 2026-11-15)
+
+- Derinlik haritası süresi: kaba (düzey 3) 1145 s, ince (düzey 2) 4590 s, 224 görüntü → oran 4,0 = 4^(L_c−L_f).
+  İnce füzyonun tepe RAM'i 10,9 GB (en büyük alt sahne), derinlik haritaları 6,7 GB.
+- Karo F20 kazancı medyan +0,030 (p10 −0,053, p90 +0,098); karoların %29'unda negatif. Negatif karolar kaba geçişte
+  de zayıf (P 0,39, R 0,30), yoğunlukları düşük (medyan 0,77 vs 1,61); ince düzey ikisini de düşürüp 3,2× nokta
+  ekliyor. Tam ince F20 0,637 < oracle %75 0,661.
+- Spearman (gain_f20): yoğunluk +0,33, örtüşme +0,18, boşluk −0,17, rölyef +0,16, pürüzlülük +0,14 (hepsi p<0,05).
+  Yön: kazanç yoğun/çok örtüşmeli karolarda → "düşük örtüşme önce" statik kural ters çalışıyor.
+- Model (`configs/gain_model.json`, commit f1036b4, hold-out görülmeden donduruldu): yoğunluk 0,0020, rölyef 0,0006,
+  bias −0,0012; tahmin–gerçek katkı Spearman 0,68. Seçim yalnız tahmini katkı > 0 olan karolar (oracle gibi).
+- Replay F20 (β 25/50/75): adaptive 62,6/63,4/64,6; static 59,2/58,4/60,6; random ort. 60,5/60,4/61,9;
+  oracle 63,1/64,6/66,1; kaba 61,6; tam ince 63,7.
+
 ## 3. Döngü
 
 1. **Geçiş 0 — SfM** (ODM `--end-with opensfm`), bir kez. GSD hesaplanır (mevcut akış).
