@@ -51,7 +51,8 @@ FINISHED = "ODM app finished"
 def run(odm: Odm, workdir: Path, flags: list[str], log: Path, cpus: int | None = None) -> dict:
     """Run ODM; success requires exit code 0 AND ODM's completion line in this run's log.
     ``cpus`` pins ODM and its children to N CPUs (ODM's own thread flag misses some sub-steps)."""
-    cmd = odm.run_cmd(["--project-path", str(workdir), PROJECT, *flags])
+    # ODM runs with cwd = its install dir, so a relative project path would resolve there
+    cmd = odm.run_cmd(["--project-path", str(Path(workdir).resolve()), PROJECT, *flags])
     start = log.stat().st_size if log.exists() else 0
     result = run_measured(cmd, log, cwd=odm.home, env=odm.env(), cpus=cpus)
     result["command"] = cmd
