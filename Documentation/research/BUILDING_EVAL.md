@@ -54,3 +54,9 @@ Urban kuleleri: noktalar doğru yerde ve doğru yükseklikte (Roofer 56–88 m) 
 çatının %1–20'si büyüklüğünde parçalar (çatıda az, cephede çok nokta; görüntüler haritalama uçuşu değil).
 Görüntü maskesi ise ortofotoda yatık görünen kuleye oturuyor (gerçek ortofoto değil). Kalan seçenekler:
 gerçek ortofoto (DSM'e görünürlüklü izdüşüm) ya da görüntü taban izinin yatma vektörüyle düzeltilmesi.
+
+## Genellik setleri, yeni akış (2026-11-14 akşam)
+
+G1–G4 hepsi sağlandı (6/6). Bina sayıları düştü (Toledo 74 → 6, Helenenschacht 10 → 0, Zoo 1366 → 247):
+görsel kontrolde düşüş yanlış pozitiflerin (ağaçlar) elenmesi; Toledo'daki 5–6 yapı bulunuyor,
+Helenenschacht'ta gerçekten bina yok.
