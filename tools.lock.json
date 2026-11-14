@@ -13,5 +13,18 @@
     "sha256": "143413f13f347138dae731b345b8bcdc70f66e3f8bf77da260068f577b40ae7f",
     "size": 13272038,
     "install": "zip"
+  },
+  "sam3": {
+    "optional": true,
+    "git": "https://github.com/facebookresearch/sam3.git",
+    "commit": "eef6839bcfc3458dd52ea80535dc6bd62aea86b1",
+    "python": "3.12",
+    "torch_index": "https://download.pytorch.org/whl/cu128",
+    "torch": ["torch==2.10.0", "torchvision==0.25.0"],
+    "packages": ["einops==0.8.2", "triton-windows==3.6.0.post26", "pycocotools==2.0.11",
+                 "opencv-python-headless==5.0.0.93", "scikit-image==0.26.0", "scipy==1.18.1",
+                 "psutil==7.2.2", "pandas==3.1.1"],
+    "weights": "facebook/sam3 (Hugging Face, gated: accept the licence, then `hf auth login`)",
+    "note": "triton-windows is a community Windows port; SAM 3 imports triton but uses it only for video tracking"
   }
 }

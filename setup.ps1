@@ -14,7 +14,8 @@
 #>
 param(
     [string]$OdmFrom = "",
-    [switch]$SkipTools
+    [switch]$SkipTools,
+    [switch]$WithML   # optional: SAM 3 building detection (separate venv, ~5 GB incl. CUDA PyTorch)
 )
 $ErrorActionPreference = "Stop"
 $Repo = $PSScriptRoot
@@ -91,6 +92,23 @@ if (-not $SkipTools) {
         Expand-Archive $zip -DestinationPath $rooferDir
         Set-Content $rooferStamp $Lock.roofer.version -Encoding ascii
     }
+}
+
+# 2c. Optional ML tools (SAM 3) in their own venv, called by uav3d as an external tool
+if ($WithML) {
+    $ml = $Lock.sam3
+    $samDir = Join-Path $Tools "sam3"
+    if (-not (Test-Path $samDir)) { git clone --quiet $ml.git $samDir; if ($LASTEXITCODE -ne 0) { throw "git clone sam3 failed" } }
+    git -C $samDir fetch --quiet origin; git -C $samDir checkout --quiet $ml.commit
+    if ($LASTEXITCODE -ne 0) { throw "sam3 commit $($ml.commit) not available" }
+    $venv = Join-Path $Tools "ml-venv"
+    $py = Join-Path $venv "Scripts\python.exe"
+    if (-not (Test-Path $py)) { uv venv $venv --python $ml.python --quiet }
+    uv pip install --python $py @($ml.torch) --index-url $ml.torch_index
+    uv pip install --python $py -e $samDir @($ml.packages)
+    if ($LASTEXITCODE -ne 0) { throw "ML package install failed" }
+    & $py -c "import torch, sam3; assert torch.cuda.is_available(), 'CUDA not available'; print('sam3 ready on', torch.cuda.get_device_name(0))"
+    Write-Host "SAM 3 weights are gated: accept the licence at https://huggingface.co/facebook/sam3, then run: $venv\Scripts\hf.exe auth login"
 }
 
 # 3. Verify
