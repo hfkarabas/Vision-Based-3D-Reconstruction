@@ -70,7 +70,7 @@ def contributions(rows, t="20"):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("run", type=Path)
-    ap.add_argument("--k", default="200")
+    ap.add_argument("--k", default="50", help="tile image threshold (UseGeo-1: k=200 -> 7 images, 31 pct of full-scene density; k=50 -> 24 images, 79 pct; k=20 no further gain)")
     ap.add_argument("--budgets", type=float, nargs="+", default=[0.25, 0.5, 0.75])
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--fit", action="store_true", help="tuning set only: fit the gain model here")

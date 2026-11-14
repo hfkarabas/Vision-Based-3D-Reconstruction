@@ -1,4 +1,4 @@
-"""Real subset run of one selection: checks the two replay approximations (tile-border effects; a subset scene
+﻿"""Real subset run of one selection: checks the two replay approximations (tile-border effects; a subset scene
 densifies a tile like the full scene) and the image-count cost model.
 
 The selection (adaptive at budget beta, or explicit tile ids) is grouped into 4-connected components; each group
@@ -7,7 +7,7 @@ low-memory path, cropped to its tiles and merged into the coarse cloud. The merg
 against the reference and its block P/R/F is compared with the replay prediction for the same selection.
 
 usage: python bench/validate_subsets.py <run> <reference.las> (--budget 0.5 --model configs/gain_model.json | --tiles 12 13)
-       [--k 200] [--level 2] [--threads 10]
+       [--k 50] [--level 2] [--threads 10]
 """
 import argparse
 import json
@@ -30,7 +30,7 @@ def main() -> int:
     ap.add_argument("--budget", type=float)
     ap.add_argument("--model", type=Path)
     ap.add_argument("--tiles", type=int, nargs="+")
-    ap.add_argument("--k", default="200")
+    ap.add_argument("--k", default="50", help="tile image threshold (UseGeo-1: k=200 -> 7 images, 31 pct of full-scene density; k=50 -> 24 images, 79 pct; k=20 no further gain)")
     ap.add_argument("--level", type=int, default=2)
     ap.add_argument("--threads", type=int, default=10)
     ap.add_argument("--sub-scene-area", type=int, default=400000)

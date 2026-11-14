@@ -44,6 +44,11 @@ Fizibilite (2026-11-14, ODM 3.6.2'nin OpenMVS/OpenSfM ikilileri, Sheffield sahne
   `bench/fine_pass.py` bu durumu artık reddediyor.
 - **Karo başına görüntü (UseGeo-1, 25 m karo, `bench/tile_shots.py`):** k=50 → 260 karo, medyan 17 görüntü (p10 4,
   p90 44); k=200 → 226 karo, medyan 11 (p10 3, p90 31,5); k=400 → yalnız 36 karo. Toplam 224 görüntü.
+- **Alt sahne kapsaması k'ya bağlı (UseGeo-1, karo 85, düzey 3 = kaba geçişle aynı düzey).** Tam sahne karoda
+  123 k nokta üretiyor. Alt sahneyle: k=200 → 7 görüntü, 38,7 k nokta (%31); k=50 → 24 görüntü, 97,1 k (%79);
+  k=20 → 26 görüntü, 97,3 k (doyum). Eksik %21, alt sahnede bulunmayan görüntülerin derinlik haritalarından
+  gelen katkı. Varsayılan k=50. Replay'in "alt sahne karoyu tam sahne gibi yoğunlaştırır" varsayımı bu
+  nedenle iyimser; gerçek alt sahne koşusuyla (`bench/validate_subsets.py`) P/R farkı ölçülecek.
 - Karo bulutu ODM'nin topocentric çerçevesinde; birleştirme için ODM'nin georeferans dönüşümü (coords.txt ofseti) uygulanır.
 - Betik: `bench/feasibility/tile_export.py` (ODM Python'u ile, `ODM_HOME` ortam değişkeniyle) → `uav3d/refine.py`'ye
   taşınacak.
