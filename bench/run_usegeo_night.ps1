@@ -16,7 +16,7 @@ Add-Type -Namespace Win32 -Name Power -MemberDefinition @'
 [void][Win32.Power]::SetThreadExecutionState([uint32]"0x80000001")
 try {
     foreach ($n in $Strips) {
-        $out = "outputs\tune\usegeo_$n"
+        $out = "outputs\holdout\usegeo_$n"  # hold-out: kept apart from outputs\tune (protocol)
         Write-Host "[$(Get-Date -Format HH:mm:ss)] UseGeo-$n ODM ..."
         & $Python -m uav3d run "datasets\usegeo\dataset-$n\uav3d_input" --out $out --threads $Threads `
             --skip-buildings --keep-odm-intermediates
