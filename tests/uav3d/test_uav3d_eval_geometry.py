@@ -33,3 +33,8 @@ def test_precision_recall_on_offset_and_partial_reconstruction(tmp_path):
     assert r["tau_20cm"]["precision"] > 0.95            # noise class excluded
     assert r["tau_20cm"]["recall"] > 0.95               # common footprint only: both cover the same area
     assert r["median_vertical_offset_m"] == pytest.approx(0.15, abs=0.02)
+    aligned = geometry.evaluate(tmp_path / "ours.laz", tmp_path / "ref.las", taus=(0.1,), voxel=0.05,
+                                footprint_cell=2.0, sample=50_000, z_offset=0.15)
+    assert aligned["tau_10cm"]["precision"] > 0.95
+    bias = geometry.flat_ground_offset(tmp_path / "ours.laz", tmp_path / "ref.las", half=15, sample=5000)
+    assert bias["offset_m"] == pytest.approx(0.15, abs=0.01)

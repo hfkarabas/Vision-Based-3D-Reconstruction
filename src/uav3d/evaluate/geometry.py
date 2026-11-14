@@ -50,9 +50,40 @@ def _footprint(xyz: np.ndarray, x0: float, y0: float, cell: float, shape) -> np.
     return grid
 
 
+def flat_ground_offset(ours_path: Path, ref_path: Path, half: float = 100.0, radius: float = 0.5,
+                       max_range: float = 0.15, sample: int = 200_000, seed: int = 0) -> dict:
+    """Median vertical offset (ours - reference) on flat bare ground, in a central square.
+
+    Our ground-class points are paired with reference points within ``radius`` (XY); a pair
+    counts only where the reference is locally flat (z range < max_range), i.e. no vegetation,
+    edges or walls. A systematic offset here is a datum/calibration bias, not a surface error."""
+    with laspy.open(ours_path) as f:
+        cls_pts = [p for p in f.chunk_iterator(20_000_000)]
+    xyz = np.vstack([np.column_stack([p.x, p.y, p.z])[np.asarray(p.classification) == 2] for p in cls_pts])
+    cx, cy = np.median(xyz[:, 0]), np.median(xyz[:, 1])
+    bounds = (cx - half, cy - half, cx + half, cy + half)
+    xyz = xyz[(abs(xyz[:, 0] - cx) < half) & (abs(xyz[:, 1] - cy) < half)]
+    ref = _read(ref_path, drop_noise=False, bounds=bounds)
+    rng = np.random.default_rng(seed)
+    xyz = xyz[rng.choice(len(xyz), min(sample, len(xyz)), replace=False)]
+    tree = cKDTree(ref[:, :2])
+    dz = []
+    for p, ii in zip(xyz, tree.query_ball_point(xyz[:, :2], r=radius)):
+        if len(ii) >= 5:
+            z = ref[ii, 2]
+            if z.max() - z.min() < max_range:
+                dz.append(p[2] - np.median(z))
+    dz = np.asarray(dz)
+    if len(dz) < 100:
+        return {"pairs": int(len(dz)), "offset_m": 0.0}
+    return {"pairs": int(len(dz)), "offset_m": round(float(np.median(dz)), 3),
+            "mad_m": round(float(np.median(np.abs(dz - np.median(dz)))), 3)}
+
+
 def evaluate(ours_path: Path, ref_path: Path, taus=(0.10, 0.20, 0.50), voxel: float = 0.05,
-             footprint_cell: float = 2.0, sample: int = 2_000_000, seed: int = 0) -> dict:
+             footprint_cell: float = 2.0, sample: int = 2_000_000, seed: int = 0, z_offset: float = 0.0) -> dict:
     ours = _thin(_read(ours_path, drop_noise=True), voxel)
+    ours[:, 2] -= z_offset
     b = (ours[:, 0].min(), ours[:, 1].min(), ours[:, 0].max(), ours[:, 1].max())
     ref = _thin(_read(ref_path, drop_noise=False, bounds=b), voxel)
     if len(ref) == 0:
@@ -100,9 +131,15 @@ def main(argv=None) -> int:
     candidates = {"odm": run["products"]["point_cloud"]}
     if terrain:
         candidates["cleaned"] = terrain["products"]["point_cloud"]
+    # one vertical bias for the run (measured on ODM's own ground), applied to every candidate
+    bias = flat_ground_offset(Path(candidates.get("cleaned", candidates["odm"])), ref)
+    results["vertical_bias"] = bias
+    print("vertical bias", json.dumps(bias))
     for name, laz in candidates.items():
         results[name] = evaluate(Path(laz), ref)
+        results[name + "_aligned"] = evaluate(Path(laz), ref, z_offset=bias["offset_m"])
         print(name, json.dumps(results[name]))
+        print(name + "_aligned", json.dumps(results[name + "_aligned"]))
     (run_dir / "eval_geometry.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     return 0
 

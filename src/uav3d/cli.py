@@ -173,6 +173,11 @@ def cmd_run(args) -> int:
             s.update(export.export(tools.odm(), prods, rec.data.get("buildings"), cfg, out / "scene",
                                    out / "logs", tools.blender(), n_threads))
             rec.save()
+        if not args.keep_odm_intermediates:
+            stage = "prune"
+            s = rec.stage(stage)
+            s.update(odm.prune(out / "odm" / odm.PROJECT))
+        rec.set("disk_gb", round(sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 2**30, 2))
         rec.finish("ok")
         print(f"ok: {out / 'run.json'}")
         return 0
@@ -202,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--skip-terrain", action="store_true",
                    help="use ODM's DTM/DSM/point cloud as they are (no outlier cleaning)")
     r.add_argument("--skip-buildings", action="store_true")
+    r.add_argument("--keep-odm-intermediates", action="store_true",
+                   help="keep ODM's depth maps/undistorted images (needed only to re-densify regions)")
     r.add_argument("--skip-export", action="store_true", help="no glb/CityJSON/Blender scene")
     r.set_defaults(func=cmd_run)
     args = parser.parse_args(argv)

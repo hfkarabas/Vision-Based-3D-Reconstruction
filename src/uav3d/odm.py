@@ -111,5 +111,30 @@ def gsd_from_reconstruction(path: Path) -> dict:
             "points": len(points), "reconstructions": len(recs)}
 
 
+KEEP_ALWAYS = ("opensfm/reconstruction.json", "opensfm/stats/", "odm_report/", "images/", "options.json",
+               "cameras.json", "odm_georeferencing/coords.txt", "odm_georeferencing/proj.txt")
+SMALL_FILE = 1 << 20
+
+
+def prune(project: Path) -> dict:
+    """Delete ODM's intermediate files (undistorted images, depth maps, features, matches,
+    meshing/texturing work) after a run; keep the products every later stage and --reuse-odm
+    need, the SfM result, statistics/report, the hard-linked inputs and small text files.
+    Intermediates are 5-50 GB per scene; the products a few GB."""
+    keep = set(PRODUCTS.values())
+    freed = 0
+    for path in sorted(project.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        rel = path.relative_to(project).as_posix()
+        if path.is_file():
+            if rel in keep or any(rel == k or rel.startswith(k) for k in KEEP_ALWAYS) or path.stat().st_size < SMALL_FILE:
+                continue
+            freed += path.stat().st_size
+            path.unlink()
+        elif path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    missing = [k for k, v in products(project).items() if v is None and k != "reconstruction"]
+    return {"freed_gb": round(freed / 2**30, 2), "missing_products_after_prune": missing}
+
+
 def products(project: Path) -> dict[str, str | None]:
     return {k: (str(project / rel) if (project / rel).is_file() else None) for k, rel in PRODUCTS.items()}
