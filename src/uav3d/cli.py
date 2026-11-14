@@ -39,17 +39,18 @@ def _previous_odm(out: Path) -> dict | None:
     return {"products": prods, "gsd": gsd, "plan": prev.get("plan"), "ingest": prev.get("ingest")}
 
 
-def run_odm(rec: RunRecord, o: tools.Odm, images, summary, gcp, p, cfg, out: Path) -> tuple[dict, dict | None]:
+def run_odm(rec: RunRecord, o: tools.Odm, images, summary, gcp, p, cfg, out: Path,
+            geo: Path | None = None) -> tuple[dict, dict | None]:
     workdir = out / "odm"
     project = odm.prepare(images, workdir)
     log = out / "logs" / "odm.log"
-    extra = ["--gcp", str(gcp)] if gcp else []
+    extra = (["--gcp", str(gcp)] if gcp else []) + (["--geo", str(geo)] if geo else [])
     gsd = None
     if p["split"] is None:
         s = rec.stage("odm:sfm")
         s.update(odm.run(o, workdir, [*p["flags"], *extra, "--end-with", "opensfm"], log))
         gsd = odm.gsd_from_reconstruction(project / odm.PRODUCTS["reconstruction"])
-        gsd["metric"] = summary["gps_fraction"] > 0 or gcp is not None
+        gsd["metric"] = summary["gps_fraction"] > 0 or gcp is not None or geo is not None
         s["gsd"] = gsd
         rec.save()
         res = plan.resolution_flags(gsd["gsd_m"] if gsd["metric"] else None, cfg)
@@ -113,14 +114,16 @@ def cmd_run(args) -> int:
             summary = ingest.summarise(images)
             gcp = Path(args.gcp).resolve() if args.gcp else ingest.find_gcp(images_dir, images)
             summary["gcp"] = str(gcp) if gcp else None
+            geo = ingest.find_geo(images_dir, images)
+            summary["geo"] = str(geo) if geo else None
             rec.set("ingest", summary)
-            if summary["gps_fraction"] < 1.0 and not gcp:
+            if summary["gps_fraction"] < 1.0 and not (gcp or geo):
                 rec.set("warning", "Not all images carry EXIF GPS and no GCP file; outputs may be in a local frame.")
             stage = "plan"
             p = plan.odm_plan(summary, plan.ram_budget_gb(args.budget_ram_gb, cfg), cfg, n_threads)
             rec.set("plan", p)
             stage = "odm"
-            prods, gsd = run_odm(rec, o, images, summary, gcp, p, cfg, out)
+            prods, gsd = run_odm(rec, o, images, summary, gcp, p, cfg, out, geo)
         rec.set("products", prods)  # always ODM's own products, so --reuse-odm finds them
         if not args.skip_terrain:
             stage = "terrain"

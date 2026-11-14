@@ -43,6 +43,18 @@ def find_gcp(images_dir: Path, images: list[Path]) -> Path | None:
     return None
 
 
+def find_geo(images_dir: Path, images: list[Path]) -> Path | None:
+    """An ODM geo.txt (image positions) next to the images or in the dataset folder; the first
+    line must be a projection header like the GCP file's."""
+    for folder in dict.fromkeys([images[0].parent, images_dir, images_dir.parent]):
+        path = folder / "geo.txt"
+        if path.is_file():
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                if _GCP_HEADER.match(fh.readline()):
+                    return path
+    return None
+
+
 def summarise(images: list[Path]) -> dict:
     cameras: Counter[str] = Counter()
     sizes: Counter[str] = Counter()

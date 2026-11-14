@@ -99,6 +99,16 @@ def test_no_osm_buildings_gives_empty_frame_not_error(monkeypatch):
     assert len(gdf) == 0 and gdf.crs.to_epsg() == 4326
 
 
+def test_geo_txt_autodetect_requires_projection_header(tmp_path):
+    (tmp_path / "images").mkdir()
+    img = tmp_path / "images" / "a.jpg"
+    img.write_bytes(b"")
+    (tmp_path / "images" / "geo.txt").write_text("a.jpg 1 2 3\n")
+    assert ingest.find_geo(tmp_path, [img]) is None
+    (tmp_path / "images" / "geo.txt").write_text("EPSG:32633\na.jpg 498017.8 4379490.5 190.2\n")
+    assert ingest.find_geo(tmp_path, [img]) == tmp_path / "images" / "geo.txt"
+
+
 def test_gcp_autodetect_requires_odm_header(tmp_path):
     (tmp_path / "images").mkdir()
     img = tmp_path / "images" / "a.jpg"
