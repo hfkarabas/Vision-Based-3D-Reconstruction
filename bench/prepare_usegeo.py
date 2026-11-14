@@ -21,7 +21,10 @@ def main(root: Path) -> None:
     out = root / "uav3d_input"
     (out / "images").mkdir(parents=True, exist_ok=True)
     rows = []
-    for line in (root / "Camera_Inputs" / "eors.txt").read_text(encoding="utf-8").splitlines():
+    eors = root / "Camera_Inputs" / "eors.txt"
+    if not eors.is_file():  # dataset-2 ships only the orientation table (same leading columns)
+        eors = next(root.glob("Image_orientations_dataset*.xyz"))
+    for line in eors.read_text(encoding="utf-8").splitlines():
         if not line.strip() or line.startswith("#"):
             continue
         name, x, y, z, omega, phi, kappa = line.split()[:7]
