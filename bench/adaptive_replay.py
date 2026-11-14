@@ -108,7 +108,9 @@ def main() -> int:
     overlap = np.array([r["overlap"] if r["overlap"] is not None else np.nan for r in rows], dtype=float)
     static_score = 1.0 - np.where(np.isfinite(overlap), schedule.ranks(overlap), 0.5) + 1e-6
     oracle_score = np.where(np.isfinite(true_gain), true_gain, 0.0)
-    pred_pos = pred - np.nanmin(pred) + 1e-6  # ranks only matter; keep every tile selectable
+    # the model predicts the marginal contribution itself (bias = mean tuning contribution): tiles predicted
+    # to lower the block score are not refined, as for the oracle; the budget may stay partly unused
+    pred_pos = np.where(np.isfinite(pred), pred, 0.0)
 
     def run(name, sel):
         mask = np.zeros(len(rows), bool)

@@ -52,7 +52,7 @@ def main() -> int:
         model = schedule.GainModel.from_dict(json.loads(a.model.read_text(encoding="utf-8")))
         pred = model.predict([{k: r.get(k) for k in adaptive_replay.SIGNALS} for r in rows])
         total = len(set().union(*shots))
-        sel = schedule.select(pred - np.nanmin(pred) + 1e-6, shots, int(round(a.budget * total))).order
+        sel = schedule.select(np.where(np.isfinite(pred), pred, 0.0), shots, int(round(a.budget * total))).order
         name = a.name or f"adaptive_{a.budget}"
     work = run / "validate" / name
     work.mkdir(parents=True, exist_ok=True)
