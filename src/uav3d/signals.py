@@ -15,7 +15,7 @@ import numpy as np
 import rasterio
 from rasterio.windows import from_bounds
 
-from uav3d.evaluate.tiles import tile_index
+from uav3d.refine import tile_index
 
 
 def _window(ds, b):

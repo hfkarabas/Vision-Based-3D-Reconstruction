@@ -17,16 +17,9 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from uav3d.evaluate.geometry import _read, _thin
+from uav3d.refine import tile_index
 
 TAUS = (0.10, 0.20, 0.50)
-
-
-def tile_index(xy: np.ndarray, origin: tuple[float, float], size: float, shape: tuple[int, int]) -> np.ndarray:
-    """Flat tile id (iy * nx + ix) per point; -1 outside the grid."""
-    ix = np.floor((xy[:, 0] - origin[0]) / size).astype(np.int64)
-    iy = np.floor((xy[:, 1] - origin[1]) / size).astype(np.int64)
-    ok = (ix >= 0) & (ix < shape[1]) & (iy >= 0) & (iy < shape[0])
-    return np.where(ok, iy * shape[1] + ix, -1)
 
 
 def _groups(ids: np.ndarray, n: int) -> list[np.ndarray]:

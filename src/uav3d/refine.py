@@ -49,6 +49,16 @@ def grid(xmin: float, ymin: float, xmax: float, ymax: float, size: float) -> lis
             for iy in range(ny) for ix in range(nx)]
 
 
+def tile_index(xy, origin: tuple[float, float], size: float, shape: tuple[int, int]):
+    """Flat tile id (iy * nx + ix) per XY point on a grid of `shape` (rows, cols); -1 outside the grid."""
+    import numpy as np
+
+    ix = np.floor((xy[:, 0] - origin[0]) / size).astype(np.int64)
+    iy = np.floor((xy[:, 1] - origin[1]) / size).astype(np.int64)
+    ok = (ix >= 0) & (ix < shape[1]) & (iy >= 0) & (iy < shape[0])
+    return np.where(ok, iy * shape[1] + ix, -1)
+
+
 def groups(selected: list[Tile]) -> list[list[Tile]]:
     """4-connected components of the selected tiles: adjacent tiles share images, so each component is
     densified as one scene and its shared images are processed once."""
