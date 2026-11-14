@@ -80,6 +80,19 @@ def test_pointcloud_roofprints_recover_buildings_and_drop_noise(tmp_path):
     assert areas[0] == pytest.approx(36, rel=0.15) and areas[1] == pytest.approx(100, rel=0.15)
 
 
+def test_planar_points_keep_roof_and_drop_tree_crown():
+    rng = np.random.default_rng(1)
+    n = 20000
+    xy = rng.uniform(0, 10, (n, 2))
+    roof = np.column_stack([xy, 5 + 0.3 * xy[:, 0] + rng.normal(0, 0.02, n)])      # sloped plane, 2 cm noise
+    c = rng.normal(0, 1, (n, 3))
+    crown = c / np.linalg.norm(c, axis=1, keepdims=True) * rng.uniform(1.5, 3, (n, 1)) + [20, 5, 8]  # leafy ball
+    kept = footprints.planar_points(np.vstack([roof, crown]), voxel_m=0.3, k=30, max_surface_variation=0.03)
+    on_roof = (kept[:, 0] <= 10).sum()
+    assert on_roof > 0.8 * len(np.unique(np.floor(roof / 0.3), axis=0))
+    assert (kept[:, 0] > 10).sum() < 0.1 * on_roof
+
+
 def test_no_osm_buildings_gives_empty_frame_not_error(monkeypatch):
     monkeypatch.setattr(footprints, "_overpass", lambda *a, **k: ([], "https://example.invalid"))
     gdf = footprints.fetch_osm((0, 0, 1, 1), ["https://example.invalid"])

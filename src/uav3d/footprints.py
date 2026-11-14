@@ -108,9 +108,18 @@ def from_pointcloud(laz_path, crs_wkt: str, gsd_m: float | None, pcfg: dict, bui
 
     las = laspy.read(laz_path)
     keep = np.asarray(las.classification) == building_class
-    x, y = np.asarray(las.x)[keep], np.asarray(las.y)[keep]
+    pts = np.column_stack([las.x, las.y, las.z])[keep]
+    n_class = len(pts)
+    all_thin = None
+    if "planarity" in pcfg and len(pts):
+        all_thin, planar = planarity_mask(pts, **{k: v for k, v in pcfg["planarity"].items()
+                                                 if k != "min_planar_fraction"})
+        pts = all_thin[planar]
+    x, y = pts[:, 0], pts[:, 1]
     if len(x) == 0:
-        return gpd.GeoDataFrame({"source": []}, geometry=[], crs=crs_wkt)
+        empty = gpd.GeoDataFrame({"source": []}, geometry=[], crs=crs_wkt)
+        empty.attrs.update(class_points=n_class, planar_points=0)
+        return empty
     cell = float(np.clip((gsd_m or 0.05) * pcfg["cell_gsd_factor"], pcfg["cell_min_m"], pcfg["cell_max_m"]))
     # pad by more than the largest kernel so closing does not erode regions at the raster edge
     pad = (max(pcfg["close_m"], pcfg["open_m"]) + 2 * cell)
@@ -137,8 +146,46 @@ def from_pointcloud(laz_path, crs_wkt: str, gsd_m: float | None, pcfg: dict, bui
             if poly.is_valid and poly.area >= min_area:
                 polys.append(regularise(poly, pcfg["rectangularity"]))
     gdf = gpd.GeoDataFrame({"source": ["pointcloud"] * len(polys)}, geometry=polys, crs=crs_wkt)
-    gdf.attrs["cell_m"] = round(cell, 3)
+    if all_thin is not None and len(gdf):
+        # Share of the building-class points inside each candidate that are planar: high on roofs,
+        # low on tree crowns that only contributed a few locally planar leaf patches.
+        import shapely
+        fractions = []
+        for geom in gdf.geometry:
+            inside = shapely.contains_xy(geom, all_thin[:, 0], all_thin[:, 1])
+            fractions.append(float(planar[inside].mean()) if inside.any() else 0.0)
+        gdf["planar_fraction"] = np.round(fractions, 3)
+        gdf = gdf[gdf["planar_fraction"] >= pcfg["planarity"]["min_planar_fraction"]]
+    gdf.attrs.update(cell_m=round(cell, 3), class_points=n_class, planar_points=len(x),
+                     candidates=len(polys))
     return gdf
+
+
+def planarity_mask(pts: np.ndarray, voxel_m: float, k: int,
+                   max_surface_variation: float) -> tuple[np.ndarray, np.ndarray]:
+    """(voxel-thinned points, mask of those on locally planar surfaces); see planar_points."""
+    from scipy.spatial import cKDTree
+
+    _, first = np.unique(np.floor(pts / voxel_m).astype(np.int64), axis=0, return_index=True)
+    thin = pts[first]
+    if len(thin) < k:
+        return thin, np.zeros(len(thin), dtype=bool)
+    _, nn = cKDTree(thin).query(thin, k=k, workers=-1)
+    nb = thin[nn] - thin[nn].mean(axis=1, keepdims=True)
+    ev = np.linalg.eigvalsh(np.einsum("nki,nkj->nij", nb, nb) / k)
+    return thin, ev[:, 0] / ev.sum(axis=1).clip(1e-12) <= max_surface_variation
+
+
+def planar_points(pts: np.ndarray, voxel_m: float, k: int, max_surface_variation: float) -> np.ndarray:
+    """Keep points that lie on locally planar surfaces (roofs), dropping tree crowns.
+
+    Points are voxel-thinned (uniform density), then each point's surface variation
+    l3 / (l1 + l2 + l3) of its k nearest neighbours is computed (Pauly et al. 2002; used for
+    roof/vegetation separation in photogrammetric clouds, e.g. Rönnholm et al. 2025). With
+    voxel 0.3 m and k = 30 the neighbourhood is ~1 m, large enough to average out
+    photogrammetric noise but smaller than a roof face."""
+    thin, mask = planarity_mask(pts, voxel_m, k, max_surface_variation)
+    return thin[mask]
 
 
 def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg) -> dict:
@@ -159,6 +206,9 @@ def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg) -> dic
         pc = from_pointcloud(laz_path, crs_wkt, gsd_m, pcfg, cfg["roofer"]["building_class"], min_area)
         summary["pointcloud_cell_m"] = pc.attrs.get("cell_m")
         summary["pointcloud_polygons"] = len(pc)
+        summary["building_class_points"] = pc.attrs.get("class_points")
+        summary["planar_points"] = pc.attrs.get("planar_points")
+        summary["pointcloud_candidates"] = pc.attrs.get("candidates")
         if len(fp) and len(pc):
             osm_union = unary_union(list(fp.geometry))
             overlap = pc.geometry.intersection(osm_union).area / pc.geometry.area
