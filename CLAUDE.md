@@ -44,6 +44,7 @@ Doğrulanan: Brighton Beach (18 foto, 2,7 dk, 2,8 GB), Sheffield (172 foto, 36 d
 - ODM 3.6 nokta bulutu ASPRS sınıflı (2 zemin, 3 bitki, 6 bina) → Roofer varsayılanları doğru.
 - OpenMVS RTX 5070'i kullanmıyor (GPU %1) → muhtemelen eski CUDA derlemesi; hızlanma fırsatı, incelenmedi.
 - "Sheffield" seti aslında ABD/Florida (28,04K −82,70B).
+- Bina taban izi (dal `claude/tree-building`): nokta düzlemselliği filtresi (yüzey değişimi ≤0,03 @ ~1 m, aday içi ≥%60 düzlemsel) banliyö/ağaçlıkta iyi (Sheffield 29 bina, Zoo adayları 1351→324). AirZoo (ayar setleri) başarısız: urban'da yüksek bloklar hiç bulunmuyor (zemin sınıfı 112 m'ye çıkıyor, SMRF+tepelik arazi), rural'da teraslı tarlalar/yamaçlar "bina". Kök neden: ODM OpenPointClass sınıflandırması eğitim alanı dışında güvenilmez; yalnız geometriyle çözülemiyor → görüntü tabanlı bina tespiti + nDSM birleşimi gerekli (karar bekliyor).
 - Roofer RMSE (LoD2.2) referanssız bina kalite sinyali: gerçek çatılar 0,2–0,5 m, ağaç karışımı >1 m. Araştırmadaki kalite geri beslemesi için aday.
 
 ### Eski akışlar (legacy)
