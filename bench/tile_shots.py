@@ -1,7 +1,7 @@
 ﻿"""Shots observing each tile of a run's tile grid (cost input of the scheduler).
 
 usage: python bench/tile_shots.py <run dir> [--size 25] [--k 50 200 400]
-Grid: same as bench/tile_gains.py (anchored at the coarse cloud's min XY, UTM). Tiles are shifted into ODM's
+Grid: same as bench/tile_gains.py (anchored at the coarse cloud's min XY, UTM; coarse_pass/fine.laz if present). Tiles are shifted into ODM's
 reconstruction frame with the coords.txt offset. Writes <run>/tile_shots.json:
 {"size", "origin", "shape", "k": {k: {tile id: [shots]}}, "stats": {k: {...}}}
 """
@@ -23,7 +23,10 @@ def main() -> int:
     ap.add_argument("--k", type=int, nargs="+", default=[50, 200, 400])
     a = ap.parse_args()
     project = a.run / "odm" / "project"
-    h = laspy.open(project / "odm_georeferencing" / "odm_georeferenced_model.laz").header
+    coarse = a.run / "coarse_pass" / "fine.laz"  # same grid as bench/tile_gains.py
+    if not coarse.is_file():
+        coarse = project / "odm_georeferencing" / "odm_georeferenced_model.laz"
+    h = laspy.open(coarse).header
     x0, y0, x1, y1 = h.mins[0], h.mins[1], h.maxs[0], h.maxs[1]
     shape = (math.ceil((y1 - y0) / a.size), math.ceil((x1 - x0) / a.size))
     ox, oy = refine.utm_offset(project)

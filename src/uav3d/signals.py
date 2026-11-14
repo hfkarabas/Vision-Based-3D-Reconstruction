@@ -43,6 +43,31 @@ def point_counts(laz_path, origin, size, shape, chunk: int = 20_000_000) -> np.n
     return n
 
 
+def dsm_cell(gsd_m: float, max_size_px: int, coarse_side_px: int) -> float:
+    """DSM cell for the void signal: twice the coarse pass's ground sampling (GSD x image downscale), so an
+    empty cell means missing data, not sparse sampling."""
+    return 2.0 * gsd_m * max_size_px / coarse_side_px
+
+
+def dsm(odm, laz_path, out_tif, cell: float, log) -> dict:
+    """Max-height DSM of a point cloud without gap filling (PDAL writers.gdal); empty cells stay nodata."""
+    import json
+    from pathlib import Path
+
+    from uav3d.record import run_measured
+
+    out_tif = Path(out_tif)
+    pipe = [{"type": "readers.las", "filename": str(laz_path)},
+            {"type": "writers.gdal", "filename": str(out_tif), "resolution": cell, "output_type": "max",
+             "data_type": "float32", "nodata": -9999, "window_size": 0, "gdalopts": "COMPRESS=DEFLATE,TILED=YES"}]
+    path = out_tif.with_suffix(".pipeline.json")
+    path.write_text(json.dumps(pipe, indent=1), encoding="utf-8")
+    info = run_measured([str(odm.exe("pdal")), "pipeline", str(path)], Path(log), env=odm.env())
+    if info["returncode"] != 0 or not out_tif.is_file():
+        raise RuntimeError(f"DSM failed (exit {info['returncode']}); see {log}")
+    return {"dsm": str(out_tif), "cell_m": cell, "wall_s": info["wall_s"]}
+
+
 def tile_signals(dsm_path, overlap_path, laz_path, origin, size: float, shape) -> list[dict]:
     counts = point_counts(laz_path, origin, size, shape)
     dens = counts / size ** 2

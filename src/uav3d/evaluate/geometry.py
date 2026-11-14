@@ -60,6 +60,8 @@ def flat_ground_offset(ours_path: Path, ref_path: Path, half: float = 100.0, rad
     with laspy.open(ours_path) as f:
         cls_pts = [p for p in f.chunk_iterator(20_000_000)]
     xyz = np.vstack([np.column_stack([p.x, p.y, p.z])[np.asarray(p.classification) == 2] for p in cls_pts])
+    if len(xyz) == 0:  # unclassified cloud (e.g. a bare OpenMVS pass): the flat-reference test alone selects ground
+        xyz = np.vstack([np.column_stack([p.x, p.y, p.z]) for p in cls_pts])
     cx, cy = np.median(xyz[:, 0]), np.median(xyz[:, 1])
     bounds = (cx - half, cy - half, cx + half, cy + half)
     xyz = xyz[(abs(xyz[:, 0] - cx) < half) & (abs(xyz[:, 1] - cy) < half)]
