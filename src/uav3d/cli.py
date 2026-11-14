@@ -25,11 +25,17 @@ def _previous_odm(out: Path) -> dict | None:
     try:
         prev = json.loads((out / "run.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
+        prev = {}
     prods = prev.get("products") or {}
-    if not all(prods.get(k) and Path(prods[k]).is_file() for k in TERRAIN):
-        return None
     gsd = next((s["gsd"] for s in prev.get("stages", []) if s.get("gsd")), None)
+    if not all(prods.get(k) and Path(prods[k]).is_file() for k in TERRAIN):
+        # run.json was overwritten (e.g. an interrupted later run): fall back to the files on disk
+        prods = odm.products(out / "odm" / odm.PROJECT)
+        if not all(prods.get(k) for k in TERRAIN):
+            return None
+        if prods.get("reconstruction"):
+            gsd = odm.gsd_from_reconstruction(Path(prods["reconstruction"]))
+            gsd["metric"] = footprints.dsm_area(prods["dsm"])[1] is not None
     return {"products": prods, "gsd": gsd, "plan": prev.get("plan"), "ingest": prev.get("ingest")}
 
 

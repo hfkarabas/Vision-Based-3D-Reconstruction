@@ -27,6 +27,7 @@
       "open_m": 1.0,
       "simplify_cells": 1.5,
       "rectangularity": 0.8,
+      "planarity": {"voxel_m": 0.3, "k": 30, "max_surface_variation": 0.03, "min_planar_fraction": 0.6},
       "max_osm_overlap": 0.3
     }
   },
