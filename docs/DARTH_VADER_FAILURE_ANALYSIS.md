@@ -2,7 +2,7 @@
 
 ## Reproduced input and baseline
 
-All 30 original JPEGs at `C:/Users/furka/OneDrive/Desktop/vader` decoded successfully. The filename order and all 30 SHA-256 values matched the initial desktop run's manifest and the replay. No source photograph or EXIF record was edited. The original run was `outputs/demo/run_20261110T065247868089Z_2d11a62b/reconstruction`. The replay is `outputs/vader-investigation/baseline`.
+All 30 original JPEGs at `%USERPROFILE%/OneDrive/Desktop/vader` decoded successfully. The filename order and all 30 SHA-256 values matched the initial desktop run's manifest and the replay. No source photograph or EXIF record was edited. The original run was `outputs/demo/run_20261110T065247868089Z_2d11a62b/reconstruction`. The replay is `outputs/vader-investigation/baseline`.
 
 The replay reproduced seed images 21 and 22, 2/30 registered cameras, 73 landmarks, 14 verified edges, 16 components, 541 tracks and 15 tracks spanning three views. Median/RMS reprojection error was 0.1404/0.2743 px. Runtime was 32.02 s compared with 27.34 s in the original run. The two-view result was labeled partial.
 

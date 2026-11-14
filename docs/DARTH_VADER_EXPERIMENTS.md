@@ -35,7 +35,7 @@ Both Fast runs validated colored PLY and GLB by reloading. Coordinates use the s
 ## Reproduce
 
 ```powershell
-$images = 'C:\Users\furka\OneDrive\Desktop\vader'
+$images = '%USERPROFILE%\OneDrive\Desktop\vader'
 $runs = 'outputs/vader-replay'
 $common = @('--input', $images, '--auto-intrinsics', '--local-ba', '--refine-points', '--feature-cache', "$runs/features", '--pair-cache', "$runs/pair-cache")
 .venv\Scripts\python.exe -m vision3d.cli reconstruct-sequence @common --output "$runs/baseline"

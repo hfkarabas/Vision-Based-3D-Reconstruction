@@ -1,6 +1,6 @@
 # Bina tespiti değerlendirmesi (ayar setleri)
 
-Etiketler: `labels/buildings/` (Furkan, 2026-11-14; kaba dikdörtgenler, birbirine değen parçalar tek bina).
+Etiketler: `labels/buildings/` (elle çizildi, 2026-11-14; kaba dikdörtgenler, birbirine değen parçalar tek bina).
 Ölçüm: `python -m uav3d.evaluate.buildings`. Eşleşme: IoU ≥ 0,3, birebir. Yalnızca örnek alanlar içinde sayılır.
 Tahmin olarak "ok" ve "low_confidence" durumundaki binalar kullanılır.
 
