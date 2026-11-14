@@ -130,6 +130,28 @@ def undistorted_max_size(project: Path) -> int:
         return max(im.size)
 
 
+def effective_size(max_resolution: int, level: int, min_resolution: int = 640) -> tuple[int, int]:
+    """(level, image side in px) OpenMVS actually uses: max_resolution >> level, but the level is lowered
+    until the side reaches min_resolution (OpenMVS Image::RecomputeMaxResolution). With ODM's
+    --min-resolution 640, a 7952 px image at "level 4" is densified at level 3 (994 px)."""
+    size = max_resolution >> level
+    while level > 0 and size < min_resolution:
+        level -= 1
+        size = max_resolution >> level
+    return level, size
+
+
+def dmap_size(path: Path) -> tuple[int, int]:
+    """(width, height) of an OpenMVS .dmap depth map (header: 'DR', type, padding, image w/h, depth w/h)."""
+    import struct
+
+    with open(path, "rb") as fh:
+        head = fh.read(20)
+    if head[:2] != b"DR":
+        raise RefineError(f"not an OpenMVS depth map: {path}")
+    return struct.unpack("<II", head[12:20])
+
+
 def densify(odm, scene: Path, level: int, max_resolution: int, n_threads: int, log: Path,
             min_resolution: int = 640, filter_points: bool = True) -> dict:
     """OpenMVS densification of one exported scene with ODM's flags (stages/openmvs.py) at `level`.

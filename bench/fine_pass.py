@@ -1,6 +1,10 @@
 """Fine dense pass of a whole kept ODM project (tuning data for the adaptive scheduler).
 
-Re-densifies the full scene one OpenMVS level finer than ODM's run with ODM's own low-memory path
+Re-densifies the full scene one OpenMVS level finer than ODM's run with ODM's own low-memory path.
+ODM asks for a level but passes --min-resolution 640, which makes OpenMVS lower the level (42 MP UseGeo:
+"medium" = level 4 requested, level 3 = 994 px used); the script refuses a "fine" pass that is not finer
+than ODM's depth maps.
+Low-memory path
 (stages/openmvs.py, used there when OpenMVS runs out of memory): (1) depth maps of every image once,
 without fusion (--fusion-mode 1); (2) the scene is split into sub-scenes (--sub-scene-area);
 (3) each sub-scene is fused from the existing depth maps and filtered; (4) the PLYs are merged into
@@ -58,7 +62,15 @@ def main() -> int:
     (out / "Densify.ini").write_text("Optimize = 7\nMin Views Filter = 1\n", encoding="utf-8")
     (out / "subscene.ini").write_text("Optimize = 0\nEstimation Geometric Iters = 0\nMin Views Filter = 1\n",
                                       encoding="utf-8")
-    common = ["--resolution-level", a.level, "--max-resolution", refine.undistorted_max_size(project),
+    max_res = refine.undistorted_max_size(project)
+    level, side = refine.effective_size(max_res, a.level)
+    coarse_dmap = next((project / "opensfm" / "undistorted" / "openmvs" / "depthmaps").glob("*.dmap"), None)
+    coarse_side = max(refine.dmap_size(coarse_dmap)) if coarse_dmap else None
+    rec.update(effective_level=level, side_px=side, coarse_side_px=coarse_side)
+    if a.scene is None and coarse_side is not None and side <= coarse_side:
+        raise SystemExit(f"fine pass would not be finer: {side} px vs ODM's {coarse_side} px (level {a.level} "
+                         f"-> effective {level}); use a lower --level")
+    common = ["--resolution-level", a.level, "--max-resolution", max_res,
               "--sub-resolution-levels", 2, "--number-views-fuse", 2, "--max-threads", a.threads,
               "--archive-type", 3, "-w", dmaps]
 

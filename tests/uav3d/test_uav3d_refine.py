@@ -1,6 +1,20 @@
 from uav3d import refine
 
 
+def test_effective_size_follows_openmvs_min_resolution():
+    assert refine.effective_size(7952, 4, 640) == (3, 994)   # ODM "medium" on 42 MP UseGeo images
+    assert refine.effective_size(7952, 2, 640) == (2, 1988)
+    assert refine.effective_size(4000, 1, 640) == (1, 2000)
+    assert refine.effective_size(500, 2, 640) == (0, 500)
+
+
+def test_dmap_size_reads_header(tmp_path):
+    import struct
+    p = tmp_path / "d.dmap"
+    p.write_bytes(b"DR\x07\x00" + struct.pack("<IIII", 7952, 5304, 994, 663) + b"\x00" * 8)
+    assert refine.dmap_size(p) == (994, 663)
+
+
 def test_grid_covers_box_with_square_tiles():
     tiles = refine.grid(0, 0, 250, 100, 100)
     assert len(tiles) == 3 * 1
