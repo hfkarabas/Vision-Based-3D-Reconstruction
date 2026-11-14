@@ -36,6 +36,14 @@ Fizibilite (2026-11-14, ODM 3.6.2'nin OpenMVS/OpenSfM ikilileri, Sheffield sahne
   (görüntü birleşimi bir kez hesaplanır); ek yük deneyde ölçülüp raporlanır.
 - Bu OpenMVS derlemesinde GPU yolu RTX 5070'de (sm_120) çöküyor (0xC0000005, CUDA çekirdeği yok); `--cuda-device -2`
   (CPU) zorunlu. ODM'nin GPU'yu "kullanmaması" bundan: hata sonrası CPU'ya düşüyor.
+- **ODM'nin istediği düzey ≠ kullanılan düzey.** ODM `--resolution-level` ile birlikte `--min-resolution 640` verir;
+  OpenMVS kenar 640 px'in altına düşerse düzeyi düşürür. 42 MP UseGeo görüntülerinde "medium" = düzey 4 istenir,
+  düzey 3 (994×663 px) kullanılır (`.dmap` başlığından doğrulandı). İlk "ince" geçiş (düzey 3) bu yüzden kaba geçişle
+  aynı çıktı (nokta sayısı 28,95 M / 29,06 M; karo kazancı ≈ 0) ve geçersiz sayıldı
+  (`outputs/tune/usegeo_1/*_l3_same_as_coarse*`). İnce geçiş = düzey 2 (1988 px). `refine.effective_size` ve
+  `bench/fine_pass.py` bu durumu artık reddediyor.
+- **Karo başına görüntü (UseGeo-1, 25 m karo, `bench/tile_shots.py`):** k=50 → 260 karo, medyan 17 görüntü (p10 4,
+  p90 44); k=200 → 226 karo, medyan 11 (p10 3, p90 31,5); k=400 → yalnız 36 karo. Toplam 224 görüntü.
 - Karo bulutu ODM'nin topocentric çerçevesinde; birleştirme için ODM'nin georeferans dönüşümü (coords.txt ofseti) uygulanır.
 - Betik: `bench/feasibility/tile_export.py` (ODM Python'u ile, `ODM_HOME` ortam değişkeniyle) → `uav3d/refine.py`'ye
   taşınacak.

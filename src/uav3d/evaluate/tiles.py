@@ -33,7 +33,7 @@ def _groups(ids: np.ndarray, n: int) -> list[np.ndarray]:
 def _coverage(xy: np.ndarray, origin, size: float, cell: float) -> float:
     if len(xy) == 0:
         return 0.0
-    k = int(round(size / cell))
+    k = int(np.ceil(size / cell - 1e-9))  # cells per side (25 m / 2 m -> 13, the last one partial)
     c = np.unique(np.floor((xy - np.asarray(origin)) / cell).astype(np.int64), axis=0)
     return round(len(c) / (k * k), 3)
 
