@@ -7,6 +7,7 @@ covers them, so Roofer is never asked to model a building we did not observe.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -75,6 +76,24 @@ def fetch_osm(bbox_wgs84, urls: list[str], retries: int = 3, timeout_s: int = 18
         gdf = gpd.GeoDataFrame({"osm_id": []}, geometry=[], crs="EPSG:4326")
     gdf.attrs["endpoint"] = used
     return gdf
+
+
+def osm_cached(bbox, fcfg: dict, cache_dir: Path) -> tuple[gpd.GeoDataFrame, str]:
+    """OSM footprints for the bbox, cached per run folder. If every endpoint fails the run goes on
+    without OSM (point-cloud and image footprints remain) and the reason is recorded."""
+    key = "_".join(f"{v:.6f}" for v in bbox)
+    cache = cache_dir / f"osm_{key}.gpkg"
+    if cache.is_file():
+        return gpd.read_file(cache), f"cache:{cache.name}"
+    try:
+        osm = fetch_osm(bbox, fcfg["osm_overpass_urls"], fcfg["osm_retries_per_endpoint"],
+                        fcfg["osm_timeout_s"])
+    except FootprintError as exc:
+        return gpd.GeoDataFrame({"osm_id": []}, geometry=[], crs="EPSG:4326"), f"unavailable: {exc}"[:300]
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    import pyogrio
+    pyogrio.write_dataframe(osm, cache, geometry_type="Polygon")  # also remembers "no buildings here"
+    return osm, osm.attrs.get("endpoint", "")
 
 
 def covered(footprints: gpd.GeoDataFrame, dsm_path, min_fraction: float) -> gpd.Series:
@@ -188,16 +207,59 @@ def planar_points(pts: np.ndarray, voxel_m: float, k: int, max_surface_variation
     return thin[mask]
 
 
-def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg) -> dict:
+def image_cover(fp: gpd.GeoDataFrame, score_path, min_score_pct: int) -> pd.Series:
+    """Share of each footprint's cells where the image model says 'building'."""
+    with rasterio.open(score_path) as ds:
+        s = ds.read(1)
+        values = []
+        for geom in fp.to_crs(ds.crs).geometry:
+            inside = ~geometry_mask([geom], out_shape=s.shape, transform=ds.transform)
+            n = inside.sum()
+            values.append(float((s[inside] >= min_score_pct).sum() / n) if n else 0.0)
+    return pd.Series(values, index=fp.index)
+
+
+def from_image(score_path, crs_wkt: str, icfg: dict, min_score_pct: int, min_area: float) -> gpd.GeoDataFrame:
+    """Footprints straight from the image-model mask (buildings the point-cloud classes missed)."""
+    from rasterio.features import shapes
+    from scipy import ndimage
+
+    with rasterio.open(score_path) as ds:
+        mask = ds.read(1) >= min_score_pct
+        res, transform, crs = ds.res[0], ds.transform, ds.crs
+    r = max(1, int(round(icfg["open_m"] / res)))
+    yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
+    mask = ndimage.binary_opening(mask, structure=xx * xx + yy * yy <= r * r)
+    polys = []
+    for geom, value in shapes(mask.astype(np.uint8), mask=mask, transform=transform):
+        if value:
+            poly = Polygon(geom["coordinates"][0]).simplify(res * 2)
+            if poly.is_valid and poly.area >= min_area:
+                polys.append(regularise(poly, icfg["rectangularity"]))
+    return gpd.GeoDataFrame({"source": ["image"] * len(polys)}, geometry=polys, crs=crs).to_crs(crs_wkt)
+
+
+def _not_overlapping(new: gpd.GeoDataFrame, existing: gpd.GeoDataFrame, max_overlap: float) -> gpd.GeoDataFrame:
+    if not len(existing) or not len(new):
+        return new
+    union = unary_union(list(existing.geometry))
+    return new[new.geometry.intersection(union).area / new.geometry.area < max_overlap]
+
+
+def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_path=None) -> dict:
     """Write roofprints for the reconstructed area to ``out_gpkg``; return a summary.
 
-    OSM polygons are used where they exist; point-cloud roofprints fill the gaps, kept only
-    where they do not substantially overlap an OSM polygon."""
-    fcfg, pcfg = cfg["footprints"], cfg["footprints"]["pointcloud"]
+    OSM polygons are used where they exist. Point-cloud roofprints fill the gaps, kept only
+    where they do not substantially overlap an OSM polygon and, when an image-model score
+    raster is given, only where the image model also sees a building (trees, terraces and
+    other planar non-buildings fail this). Image-model footprints then add buildings the
+    point-cloud classes missed; their height is checked later from the points (Roofer)."""
+    fcfg, pcfg, icfg = cfg["footprints"], cfg["footprints"]["pointcloud"], cfg["footprints"]["image"]
+    min_score_pct = int(round(cfg["detection"]["min_score"] * 100))
     bbox, crs_wkt = dsm_area(dsm_path)
     min_area = max((fcfg["min_side_gsd"] * gsd_m) ** 2 if gsd_m else 0.0, fcfg["min_area_m2"])
-    osm = fetch_osm(bbox, fcfg["osm_overpass_urls"], fcfg["osm_retries_per_endpoint"])
-    summary = {"endpoint": osm.attrs["endpoint"], "bbox_wgs84": [round(v, 6) for v in bbox],
+    osm, osm_note = osm_cached(bbox, fcfg, Path(out_gpkg).parent.parent / "cache")
+    summary = {"osm": osm_note, "bbox_wgs84": [round(v, 6) for v in bbox],
                "osm_polygons": len(osm), "min_area_m2": round(min_area, 2)}
     fp = osm.to_crs(crs_wkt) if len(osm) else gpd.GeoDataFrame({"source": []}, geometry=[], crs=crs_wkt)
     fp = fp[~fp.geometry.duplicated()].assign(source="osm")
@@ -209,11 +271,18 @@ def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg) -> dic
         summary["building_class_points"] = pc.attrs.get("class_points")
         summary["planar_points"] = pc.attrs.get("planar_points")
         summary["pointcloud_candidates"] = pc.attrs.get("candidates")
-        if len(fp) and len(pc):
-            osm_union = unary_union(list(fp.geometry))
-            overlap = pc.geometry.intersection(osm_union).area / pc.geometry.area
-            pc = pc[overlap < pcfg["max_osm_overlap"]]
+        pc = _not_overlapping(pc, fp, pcfg["max_osm_overlap"])
+        if score_path is not None and len(pc):
+            cover = image_cover(pc, score_path, min_score_pct)
+            pc = pc.assign(image_cover=cover.round(3))
+            summary["pointcloud_rejected_by_image"] = int((cover < icfg["min_cover"]).sum())
+            pc = pc[cover >= icfg["min_cover"]]
         fp = pd.concat([fp, pc], ignore_index=True)
+    if score_path is not None:
+        img = _not_overlapping(from_image(score_path, crs_wkt, icfg, min_score_pct, min_area), fp,
+                               icfg["max_overlap"])
+        summary["image_polygons_added"] = len(img)
+        fp = pd.concat([fp, img], ignore_index=True)
     fp = gpd.GeoDataFrame(fp.reset_index(drop=True), geometry="geometry", crs=crs_wkt)
     if len(fp):
         fp = fp[covered(fp, dsm_path, fcfg["min_coverage"])]

@@ -109,6 +109,28 @@ def test_geo_txt_autodetect_requires_projection_header(tmp_path):
     assert ingest.find_geo(tmp_path, [img]) == tmp_path / "images" / "geo.txt"
 
 
+def test_osm_outage_degrades_and_successes_are_cached(tmp_path, monkeypatch):
+    fcfg = {"osm_overpass_urls": ["https://example.invalid"], "osm_retries_per_endpoint": 1, "osm_timeout_s": 1}
+
+    def down(*a, **k):
+        raise footprints.FootprintError("All Overpass endpoints failed")
+    monkeypatch.setattr(footprints, "fetch_osm", down)
+    osm, note = footprints.osm_cached((0, 0, 1, 1), fcfg, tmp_path)
+    assert len(osm) == 0 and note.startswith("unavailable") and not list(tmp_path.glob("*.gpkg"))
+
+    calls = []
+
+    def up(*a, **k):
+        calls.append(1)
+        g = gpd.GeoDataFrame({"osm_id": ["w1"]}, geometry=[box(0.1, 0.1, 0.2, 0.2)], crs="EPSG:4326")
+        g.attrs["endpoint"] = "https://example.invalid"
+        return g
+    monkeypatch.setattr(footprints, "fetch_osm", up)
+    first, _ = footprints.osm_cached((0, 0, 1, 1), fcfg, tmp_path)
+    second, note2 = footprints.osm_cached((0, 0, 1, 1), fcfg, tmp_path)
+    assert len(first) == len(second) == 1 and len(calls) == 1 and note2.startswith("cache:")
+
+
 def test_gcp_autodetect_requires_odm_header(tmp_path):
     (tmp_path / "images").mkdir()
     img = tmp_path / "images" / "a.jpg"

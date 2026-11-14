@@ -19,6 +19,37 @@ class BuildingError(RuntimeError):
     pass
 
 
+def relabel(laz_in: Path, roofprints: Path, dtm_path, out_laz: Path, min_above_m: float, building_class: int) -> dict:
+    """Mark as building every point inside an accepted roofprint that stands at least
+    min_above_m above the DTM, so Roofer does not depend on the point classifier (which
+    calls tower roofs ground or terraces buildings on unfamiliar scenes)."""
+    import geopandas as gpd
+    import laspy
+    import numpy as np
+    from rasterio.features import rasterize
+
+    fp = gpd.read_file(roofprints)
+    las = laspy.read(laz_in)
+    x, y, z = np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)
+    cls = np.asarray(las.classification).copy()
+    with rasterio.open(dtm_path) as ds:
+        dtm = ds.read(1, masked=True)
+        inside = rasterize([(g, 1) for g in fp.to_crs(ds.crs).geometry], out_shape=ds.shape,
+                           transform=ds.transform, fill=0, dtype="uint8").astype(bool)
+        t = ds.transform
+    col = np.floor((x - t.c) / t.a).astype(np.int64).clip(0, dtm.shape[1] - 1)
+    row = np.floor((y - t.f) / t.e).astype(np.int64).clip(0, dtm.shape[0] - 1)
+    ground = dtm.filled(np.nan)[row, col]
+    above = (z - ground) >= min_above_m
+    building = inside[row, col] & above & (cls != 7)
+    before = int((cls == building_class).sum())
+    cls[(cls == building_class) & ~inside[row, col]] = 1   # outside every accepted roofprint: not a building
+    cls[building] = building_class
+    las.classification = cls
+    las.write(out_laz)
+    return {"building_points_before": before, "building_points_after": int((cls == building_class).sum())}
+
+
 def srs_of(dsm_path) -> str | None:
     with rasterio.open(dsm_path) as ds:
         epsg = ds.crs.to_epsg() if ds.crs else None

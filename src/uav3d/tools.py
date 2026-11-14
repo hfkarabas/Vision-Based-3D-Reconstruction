@@ -94,6 +94,13 @@ def roofer() -> Path:
     return exe
 
 
+def sam3_python() -> Path | None:
+    """Python of the optional ML venv with SAM 3 (setup.ps1 -WithML), or None."""
+    py = Path(os.environ["UAV3D_ML_PYTHON"]) if os.environ.get("UAV3D_ML_PYTHON") else \
+        tools_root() / "ml-venv" / "Scripts" / "python.exe"
+    return py if py.is_file() else None
+
+
 def blender() -> Path | None:
     """Optional. Returns None when Blender is not installed."""
     if os.environ.get("UAV3D_BLENDER"):
@@ -129,4 +136,12 @@ def doctor() -> list[tuple[str, bool, str]]:
         rows.append(("roofer", False, str(exc)))
     b = blender()
     rows.append(("blender (optional)", True, str(b) if b else "not installed; Blender export disabled"))
+    py = sam3_python()
+    if py:
+        probe = subprocess.run([str(py), "-c", "import torch, sam3; print(torch.cuda.is_available())"],
+                               capture_output=True, text=True, timeout=300)
+        ok = probe.returncode == 0 and probe.stdout.strip().endswith("True")
+        rows.append(("sam3 (optional)", True, f"{py}; CUDA {'yes' if ok else 'NO - building detection disabled'}"))
+    else:
+        rows.append(("sam3 (optional)", True, "not installed (setup.ps1 -WithML); image evidence disabled"))
     return rows

@@ -27,10 +27,19 @@
     "local_window_m": 5,
     "pit_depth_m": 1.0
   },
+  "detection": {
+    "enabled": true,
+    "prompts": ["building"],
+    "tile_res_m": 0.15,
+    "tile_px": 1008,
+    "tile_overlap": 0.2,
+    "min_score": 0.5
+  },
   "footprints": {
     "osm_overpass_urls": ["https://overpass-api.de/api/interpreter",
                           "https://overpass.kumi.systems/api/interpreter"],
-    "osm_retries_per_endpoint": 3,
+    "osm_retries_per_endpoint": 2,
+    "osm_timeout_s": 90,
     "min_side_gsd": 8,
     "min_area_m2": 10,
     "min_coverage": 0.9,
@@ -45,6 +54,12 @@
       "rectangularity": 0.8,
       "planarity": {"voxel_m": 0.3, "k": 30, "max_surface_variation": 0.03, "min_planar_fraction": 0.6},
       "max_osm_overlap": 0.3
+    },
+    "image": {
+      "min_cover": 0.5,
+      "open_m": 0.5,
+      "rectangularity": 0.8,
+      "max_overlap": 0.3
     }
   },
   "roofer": {
@@ -52,7 +67,8 @@
     "ground_class": 2,
     "lods": ["--lod12", "--lod22"],
     "min_roof_height_m": 2.5,
-    "low_confidence_rmse_m": 1.0
+    "low_confidence_rmse_m": 1.0,
+    "relabel_min_above_m": 1.0
   },
   "export": {
     "terrain_max_vertices": 200000,

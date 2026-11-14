@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from uav3d import __version__, buildings, export, footprints, ingest, odm, plan, terrain, tools
+from uav3d import __version__, buildings, detect, export, footprints, ingest, odm, plan, terrain, tools
 from uav3d.record import RunRecord
 
 TERRAIN = ("point_cloud", "dsm", "dtm", "orthophoto")
@@ -72,18 +72,36 @@ def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out:
                   n_threads: int | None = None) -> None:
     bdir = out / "buildings"
     bdir.mkdir(parents=True, exist_ok=True)
+    score = None
+    ml = tools.sam3_python()
+    if cfg["detection"]["enabled"] and ml:
+        s = rec.stage("buildings:detect")
+        s.update(detect.detect(ml, prods["orthophoto"], bdir, cfg, out / "logs" / "sam3.log"))
+        rec.save()
+        score = s["raster"]
+    elif cfg["detection"]["enabled"]:
+        rec.stage("buildings:detect", skipped="SAM 3 not installed (setup.ps1 -WithML); no image evidence")
     s = rec.stage("buildings:footprints")
     metric_gsd = gsd["gsd_m"] if gsd and gsd.get("metric") else None
     gpkg = bdir / "roofprints.gpkg"
-    s.update(footprints.prepare(prods["dsm"], prods["point_cloud"], metric_gsd, cfg, gpkg))
+    # survey coverage is judged on ODM's gap-filled DSM: the cleaned DSM keeps sparse roofs sparse
+    s.update(footprints.prepare(prods.get("odm_dsm", prods["dsm"]), prods["point_cloud"], metric_gsd, cfg, gpkg,
+                                score))
     rec.save()
     if not s["kept"]:
         # Not a failure: an explicit, reasoned "no buildings" outcome (protocol G1).
         rec.set("buildings", {"status": "none",
-                              "reason": "no OSM or point-cloud roofprints covered by the reconstruction"})
+                              "reason": "no OSM, point-cloud or image roofprints covered by the reconstruction"})
         return
+    cloud = Path(prods["point_cloud"])
+    if score is not None:
+        s = rec.stage("buildings:relabel")
+        cloud = bdir / "roofer_input.laz"
+        s.update(buildings.relabel(Path(prods["point_cloud"]), gpkg, prods["dtm"], cloud,
+                                   cfg["roofer"]["relabel_min_above_m"], cfg["roofer"]["building_class"]))
+        rec.save()
     s = rec.stage("buildings:roofer")
-    s.update(buildings.run(tools.roofer(), Path(prods["point_cloud"]), gpkg, bdir / "roofer",
+    s.update(buildings.run(tools.roofer(), cloud, gpkg, bdir / "roofer",
                            prods["dsm"], cfg, out / "logs" / "roofer.log", n_threads))
     rec.set("buildings", {"status": "ok", **s["summary"]})
 
@@ -136,7 +154,7 @@ def cmd_run(args) -> int:
                 info["image_overlap"] = terrain.overlap_summary(overlap)
             s.update(info)
             rec.save()
-            prods = {**prods, **info["products"]}
+            prods = {**prods, "odm_dsm": prods["dsm"], **info["products"]}
         if not args.skip_buildings:
             stage = "buildings"
             run_buildings(rec, prods, gsd, cfg, out, n_threads)
