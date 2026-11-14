@@ -211,12 +211,13 @@ s.display.shading.color_type = 'TEXTURE'
 s.render.resolution_x, s.render.resolution_y = 1600, 1000
 s.render.filepath = png
 bpy.ops.render.render(write_still=True)
-for screen in bpy.data.screens:  # open with textures visible (Material Preview), not Solid
-    for area in screen.areas:
+for screen in bpy.data.screens:  # open with textures visible: Solid shading coloured by texture
+    for area in screen.areas:     # ('MATERIAL' shading cannot be set in background mode)
         if area.type == 'VIEW_3D':
             for space in area.spaces:
                 if space.type == 'VIEW_3D':
-                    space.shading.type = 'MATERIAL'
+                    space.shading.type = 'SOLID'
+                    space.shading.color_type = 'TEXTURE'
                     space.clip_end = span * 10
 bpy.ops.wm.save_as_mainfile(filepath=blend)
 """
