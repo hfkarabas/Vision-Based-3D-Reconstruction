@@ -17,7 +17,8 @@ Araştırma konusu (tez başlığı, değiştirilmez):
 
 ## Teslim
 
-**30 Kasım 2026: 40–50 sayfalık proje raporu (Türkçe) + 4–5 sayfalık konferans bildirisi** (tez değil). LaTeX,
+**30 Kasım 2026: ara sunum + kabataslak rapor. 22 Aralık 2026: asıl proje raporu (40–50 sayfa, Türkçe) sunumu.**
+Ayrıca 4–5 sayfalık konferans bildirisi (konferans ve tarih belli değil; IEEE biçimi varsayıldı). Tez değil. LaTeX,
 Overleaf'te düzenlenecek; kaynak `paper/` (`report.tex`, `conference.tex`, ortak `refs.bib`; bkz. `paper/README.md`).
 Biçim alandaki yayın geleneklerine göre (IEEE konferans; rapor A4/12 pt/Times/yazar-yıl). Ürün cilası ikincil;
 araştırma katkısı, deney ve yazım öncelikli.
@@ -75,7 +76,7 @@ Doğrulanan: Brighton Beach (18 foto, 2,7 dk, 2,8 GB), Sheffield (172 foto, 36 d
 - UseGeo bölünmesi: dataset-1 = ayar (`outputs/tune/usegeo_1`), dataset-2/3 = hold-out (`outputs/holdout/`). `bench/prepare_usegeo.py` geo.txt üretir.
 - UseGeo-2 (327 foto) planlayıcı RAM modelinde bütçeyi aşıyor → split (249/alt model) yolunu ilk kez sınıyor.
 
-## Takvim (30 Kasım makale)
+## Takvim (30 Kasım ara sunum; 22 Aralık rapor — aşağıdaki gün planı 30 Kasım hedefine göre, Aralık tam analiz ve yazım)
 
 - 15–16 Kas: ürünü dondur. 17–21 Kas: adaptif zamanlayıcı (sabit RAM/süre bütçesi, düşük kaliteli ilk geçiş, referanssız kalite sinyalleri → zayıf bölgeleri yeniden yoğunlaştır; önce fizibilite: OpenMVS ROI/alt sahne veya karo bazlı görüntü alt kümesi). 22–25 Kas: UseGeo-2/3 hold-out, %25/50/75 bütçe; tekdüze düşük / tekdüze yüksek / statik seçiciye karşı. 26–29 Kas: makale. 30 Kas: teslim.
 
