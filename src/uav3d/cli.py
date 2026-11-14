@@ -68,25 +68,30 @@ def run_odm(rec: RunRecord, o: tools.Odm, images, summary, gcp, p, cfg, out: Pat
     return prods, gsd
 
 
-def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out: Path,
-                  n_threads: int | None = None) -> None:
-    bdir = out / "buildings"
-    bdir.mkdir(parents=True, exist_ok=True)
-    score = None
+def run_detect(rec: RunRecord, prods: dict, cfg: dict, out: Path) -> str | None:
+    """Image evidence (SAM 3) on ODM's orthophoto; None when disabled or not installed."""
     ml = tools.sam3_python()
     if cfg["detection"]["enabled"] and ml:
-        s = rec.stage("buildings:detect")
-        s.update(detect.detect(ml, prods["orthophoto"], bdir, cfg, out / "logs" / "sam3.log"))
+        s = rec.stage("detect")
+        s.update(detect.detect(ml, prods["orthophoto"], out / "detect", cfg, out / "logs" / "sam3.log"))
         rec.save()
-        score = s["raster"]
-    elif cfg["detection"]["enabled"]:
-        rec.stage("buildings:detect", skipped="SAM 3 not installed (setup.ps1 -WithML); no image evidence")
+        return s["raster"]
+    if cfg["detection"]["enabled"]:
+        rec.stage("detect", skipped="SAM 3 not installed (setup.ps1 -WithML); no image evidence")
+    return None
+
+
+def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out: Path,
+                  n_threads: int | None = None, score: str | None = None) -> None:
+    bdir = out / "buildings"
+    bdir.mkdir(parents=True, exist_ok=True)
     s = rec.stage("buildings:footprints")
     metric_gsd = gsd["gsd_m"] if gsd and gsd.get("metric") else None
     gpkg = bdir / "roofprints.gpkg"
     # survey coverage is judged on ODM's gap-filled DSM: the cleaned DSM keeps sparse roofs sparse
+    elevation = (prods["dsm"], prods["dtm"]) if "odm_dsm" in prods else None  # cleaned DSM/DTM only
     s.update(footprints.prepare(prods.get("odm_dsm", prods["dsm"]), prods["point_cloud"], metric_gsd, cfg, gpkg,
-                                score))
+                                score, elevation))
     rec.save()
     if not s["kept"]:
         # Not a failure: an explicit, reasoned "no buildings" outcome (protocol G1).
@@ -143,12 +148,16 @@ def cmd_run(args) -> int:
             stage = "odm"
             prods, gsd = run_odm(rec, o, images, summary, gcp, p, cfg, out, geo)
         rec.set("products", prods)  # always ODM's own products, so --reuse-odm finds them
+        score = None
+        if not args.skip_buildings or not args.skip_terrain:
+            stage = "detect"
+            score = run_detect(rec, prods, cfg, out)
         if not args.skip_terrain:
             stage = "terrain"
             s = rec.stage(stage)
             info = terrain.clean(tools.odm(), prods["point_cloud"], prods["dtm"], prods["dsm"],
                                  gsd["gsd_m"] if gsd and gsd.get("metric") else None, cfg, out / "terrain",
-                                 out / "logs" / "terrain.log")
+                                 out / "logs" / "terrain.log", score)
             overlap = Path(prods["dtm"]).parents[1] / "opensfm" / "stats" / "overlap.tif"
             if overlap.is_file():
                 info["image_overlap"] = terrain.overlap_summary(overlap)
@@ -157,7 +166,7 @@ def cmd_run(args) -> int:
             prods = {**prods, "odm_dsm": prods["dsm"], **info["products"]}
         if not args.skip_buildings:
             stage = "buildings"
-            run_buildings(rec, prods, gsd, cfg, out, n_threads)
+            run_buildings(rec, prods, gsd, cfg, out, n_threads, score)
         if not args.skip_export:
             stage = "export"
             s = rec.stage(stage)

@@ -13,6 +13,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import rasterio
+import rasterio.enums
 import rasterio.warp
 import requests
 from rasterio.features import geometry_mask
@@ -207,15 +208,40 @@ def planar_points(pts: np.ndarray, voxel_m: float, k: int, max_surface_variation
     return thin[mask]
 
 
-def image_cover(fp: gpd.GeoDataFrame, score_path, min_score_pct: int) -> pd.Series:
-    """Share of each footprint's cells where the image model says 'building'."""
+def heights(fp: gpd.GeoDataFrame, dsm_path, dtm_path, pct: float = 90) -> pd.Series:
+    """pct-th percentile of DSM - DTM inside each footprint (same grid in our terrain output)."""
+    with rasterio.open(dsm_path) as dsm, rasterio.open(dtm_path) as dtm:
+        if dsm.shape != dtm.shape or not dsm.transform.almost_equals(dtm.transform, precision=1e-6):
+            raise FootprintError(f"DSM {dsm.shape} and DTM {dtm.shape} grids differ")
+        diff = dsm.read(1, masked=True) - dtm.read(1, masked=True)
+        out = []
+        for geom in fp.to_crs(dsm.crs).geometry:
+            v = diff[~geometry_mask([geom], out_shape=diff.shape, transform=dsm.transform)].compressed()
+            out.append(float(np.percentile(v, pct)) if len(v) else 0.0)
+    return pd.Series(out, index=fp.index)
+
+
+def image_cover(fp: gpd.GeoDataFrame, score_path, min_score_pct: int, tolerance_m: pd.Series | None = None) -> pd.Series:
+    """Share of each footprint's cells where the image model says 'building'.
+
+    With ``tolerance_m`` a cell also counts when the nearest 'building' cell is within that
+    distance: in a (non-true) orthophoto a building of height h appears displaced by up to
+    h * tan(view angle), so tall buildings get a proportional tolerance and low ones none."""
+    from scipy import ndimage
+
     with rasterio.open(score_path) as ds:
-        s = ds.read(1)
+        s = ds.read(1) >= min_score_pct
+        dist = ndimage.distance_transform_edt(~s) * ds.res[0] if tolerance_m is not None else None
         values = []
-        for geom in fp.to_crs(ds.crs).geometry:
+        for idx, geom in zip(fp.index, fp.to_crs(ds.crs).geometry):
             inside = ~geometry_mask([geom], out_shape=s.shape, transform=ds.transform)
             n = inside.sum()
-            values.append(float((s[inside] >= min_score_pct).sum() / n) if n else 0.0)
+            if not n:
+                values.append(0.0)
+            elif dist is None:
+                values.append(float(s[inside].sum() / n))
+            else:
+                values.append(float((dist[inside] <= tolerance_m[idx]).sum() / n))
     return pd.Series(values, index=fp.index)
 
 
@@ -239,6 +265,53 @@ def from_image(score_path, crs_wkt: str, icfg: dict, min_score_pct: int, min_are
     return gpd.GeoDataFrame({"source": ["image"] * len(polys)}, geometry=polys, crs=crs).to_crs(crs_wkt)
 
 
+def from_elevated(dsm_path, dtm_path, score_path, crs_wkt: str, ecfg: dict, min_score_pct: int,
+                  min_area: float) -> gpd.GeoDataFrame:
+    """Footprints whose geometry comes from the points and whose 'building' evidence comes from
+    the image: connected regions at least min_height_m above the DTM (nDSM), kept when enough
+    of them lies inside the image-model mask dilated by support_buffer_m. The orthophoto of
+    tall buildings is not a true orthophoto (facades lean), so image masks alone are displaced;
+    the nDSM puts the roof where the points are."""
+    from rasterio.features import shapes
+    from scipy import ndimage
+
+    with rasterio.open(dsm_path) as dsm, rasterio.open(dtm_path) as dtm:
+        f = max(1, int(round(ecfg["cell_m"] / dsm.res[0])))
+        shape = (dsm.height // f, dsm.width // f)
+        a = dsm.read(1, out_shape=shape, resampling=rasterio.enums.Resampling.average, masked=True)
+        b = dtm.read(1, out_shape=shape, resampling=rasterio.enums.Resampling.average, masked=True)
+        transform = dsm.transform * dsm.transform.scale(dsm.width / shape[1], dsm.height / shape[0])
+        crs = dsm.crs
+    cell = abs(transform.a)
+    elevated = ((a - b).filled(0) >= ecfg["min_height_m"])
+    r = max(1, int(round(ecfg["open_m"] / cell)))
+    yy, xx = np.ogrid[-r:r + 1, -r:r + 1]
+    elevated = ndimage.binary_opening(elevated, structure=xx * xx + yy * yy <= r * r)
+    support = np.zeros(shape, dtype=bool)
+    with rasterio.open(score_path) as ds:
+        s = np.zeros(shape, dtype="uint8")
+        rasterio.warp.reproject(ds.read(1), s, src_transform=ds.transform, src_crs=ds.crs, dst_transform=transform,
+                                dst_crs=crs, resampling=rasterio.enums.Resampling.max)
+    support = s >= min_score_pct
+    rb = max(1, int(round(ecfg["support_buffer_m"] / cell)))
+    yy, xx = np.ogrid[-rb:rb + 1, -rb:rb + 1]
+    support = ndimage.binary_dilation(support, structure=xx * xx + yy * yy <= rb * rb)
+    labels, n = ndimage.label(elevated)
+    if n == 0:
+        return gpd.GeoDataFrame({"source": []}, geometry=[], crs=crs_wkt)
+    share = ndimage.mean(support, labels, index=np.arange(1, n + 1))
+    keep = np.zeros(n + 1, dtype=bool)
+    keep[1:] = share >= ecfg["min_support"]
+    mask = keep[labels]
+    polys = []
+    for geom, value in shapes(mask.astype(np.uint8), mask=mask, transform=transform):
+        if value:
+            poly = Polygon(geom["coordinates"][0]).simplify(cell * 1.5)
+            if poly.is_valid and poly.area >= min_area:
+                polys.append(regularise(poly, ecfg["rectangularity"]))
+    return gpd.GeoDataFrame({"source": ["elevated"] * len(polys)}, geometry=polys, crs=crs).to_crs(crs_wkt)
+
+
 def _not_overlapping(new: gpd.GeoDataFrame, existing: gpd.GeoDataFrame, max_overlap: float) -> gpd.GeoDataFrame:
     if not len(existing) or not len(new):
         return new
@@ -246,7 +319,8 @@ def _not_overlapping(new: gpd.GeoDataFrame, existing: gpd.GeoDataFrame, max_over
     return new[new.geometry.intersection(union).area / new.geometry.area < max_overlap]
 
 
-def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_path=None) -> dict:
+def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_path=None,
+            elevation: tuple | None = None) -> dict:
     """Write roofprints for the reconstructed area to ``out_gpkg``; return a summary.
 
     OSM polygons are used where they exist. Point-cloud roofprints fill the gaps, kept only
@@ -264,6 +338,11 @@ def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_
     fp = osm.to_crs(crs_wkt) if len(osm) else gpd.GeoDataFrame({"source": []}, geometry=[], crs=crs_wkt)
     fp = fp[~fp.geometry.duplicated()].assign(source="osm")
     fp = fp[fp.geometry.area >= min_area]
+    if score_path is not None and elevation is not None and fcfg["elevated"]["enabled"]:
+        el = from_elevated(elevation[0], elevation[1], score_path, crs_wkt, fcfg["elevated"], min_score_pct, min_area)
+        el = _not_overlapping(el, fp, fcfg["elevated"]["max_overlap"])
+        summary["elevated_polygons"] = len(el)
+        fp = pd.concat([fp, el], ignore_index=True)
     if pcfg["enabled"] and laz_path:
         pc = from_pointcloud(laz_path, crs_wkt, gsd_m, pcfg, cfg["roofer"]["building_class"], min_area)
         summary["pointcloud_cell_m"] = pc.attrs.get("cell_m")
@@ -273,7 +352,12 @@ def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_
         summary["pointcloud_candidates"] = pc.attrs.get("candidates")
         pc = _not_overlapping(pc, fp, pcfg["max_osm_overlap"])
         if score_path is not None and len(pc):
-            cover = image_cover(pc, score_path, min_score_pct)
+            tol = None
+            if elevation is not None:
+                h = heights(pc, elevation[0], elevation[1])
+                tol = (h.clip(lower=0) * icfg["lean_factor"]).clip(upper=icfg["max_lean_m"])
+                pc = pc.assign(height_p90_m=h.round(1))
+            cover = image_cover(pc, score_path, min_score_pct, tol)
             pc = pc.assign(image_cover=cover.round(3))
             summary["pointcloud_rejected_by_image"] = int((cover < icfg["min_cover"]).sum())
             pc = pc[cover >= icfg["min_cover"]]

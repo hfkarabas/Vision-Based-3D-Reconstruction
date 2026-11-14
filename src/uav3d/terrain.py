@@ -38,6 +38,9 @@ class TerrainError(RuntimeError):
 def _grid(ref, cell: float | None = None) -> dict:
     with rasterio.open(ref) as ds:
         res = cell or ds.res[0]
+        if cell is None:  # exactly the reference grid (recomputing from bounds can add a row)
+            return {"origin_x": ds.bounds.left, "origin_y": ds.bounds.bottom, "resolution": res,
+                    "width": ds.width, "height": ds.height}
         return {"origin_x": ds.bounds.left, "origin_y": ds.bounds.bottom, "resolution": res,
                 "width": int(np.ceil((ds.bounds.right - ds.bounds.left) / res)),
                 "height": int(np.ceil((ds.bounds.top - ds.bounds.bottom) / res))}
@@ -81,8 +84,25 @@ def low_surface_mask(x, y, z, cell_m: float, window_cells: int, base_tolerance_m
     return z < (ref - tolerance)[iy, ix]
 
 
-def classify(odm, laz: str, work: Path, tcfg: dict, log: Path) -> tuple[Path, dict]:
-    """ELM + statistical outliers (PDAL) -> low-surface test (numpy) -> SMRF (PDAL)."""
+def in_building_mask(x, y, score_path, min_score_pct: int) -> np.ndarray:
+    """True for points whose cell in the image-model score raster says 'building'."""
+    with rasterio.open(score_path) as ds:
+        s, t = ds.read(1), ds.transform
+    col = np.floor((x - t.c) / t.a).astype(np.int64)
+    row = np.floor((y - t.f) / t.e).astype(np.int64)
+    ok = (row >= 0) & (row < s.shape[0]) & (col >= 0) & (col < s.shape[1])
+    out = np.zeros(len(x), dtype=bool)
+    out[ok] = s[row[ok], col[ok]] >= min_score_pct
+    return out
+
+
+def classify(odm, laz: str, work: Path, tcfg: dict, log: Path, score_path=None,
+             min_score_pct: int = 50) -> tuple[Path, dict]:
+    """ELM + statistical outliers (PDAL) -> low-surface test (numpy) -> SMRF (PDAL).
+
+    With an image-model building mask, points on detected buildings are withheld from SMRF, so
+    roofs larger than SMRF's window (towers, halls) cannot become ground; the ground under them
+    is interpolated from the surroundings. Their own class is restored afterwards."""
     stage1, cleaned = work / "stage1.laz", work / "cleaned.laz"
     info = {"denoise": _pdal(odm, [
         laz,
@@ -101,16 +121,29 @@ def classify(odm, laz: str, work: Path, tcfg: dict, log: Path) -> tuple[Path, di
     low[keep] = low_surface_mask(np.asarray(las.x)[keep], np.asarray(las.y)[keep], np.asarray(las.z)[keep],
                                  lcfg["cell_m"], lcfg["window_cells"], lcfg["base_tolerance_m"])
     cls[low] = NOISE
+    masked = np.zeros(len(cls), dtype=bool)
+    if score_path is not None:
+        masked = (cls != NOISE) & in_building_mask(np.asarray(las.x), np.asarray(las.y), score_path, min_score_pct)
+        las.add_extra_dim(laspy.ExtraBytesParams(name="BldMask", type=np.uint8))
+        las.BldMask = masked.astype(np.uint8)
+        cls[masked] = NOISE   # withheld from SMRF; restored below
     las.classification = cls
     las.write(stage1)
     info["points"] = int(len(cls))
     info["noise_elm_outlier"] = int((~keep).sum())
     info["noise_low_surface"] = int(low.sum())
+    info["withheld_on_buildings"] = int(masked.sum())
+    restore = [
+        # withheld building points: their ODM class, but never ground
+        {"type": "filters.assign", "value": ["Classification = 1 WHERE BldMask == 1 && OrigClass == 2",
+                                             "Classification = OrigClass WHERE BldMask == 1 && OrigClass != 2"]},
+    ] if masked.any() else []
     info["smrf"] = _pdal(odm, [
         str(stage1),
         {"type": "filters.smrf", "ignore": f"Classification[{NOISE}:{NOISE}]", **tcfg["smrf"]},
         # non-ground keeps ODM's semantic class, unless ODM had called it ground
         {"type": "filters.assign", "value": "Classification = OrigClass WHERE Classification == 1 && OrigClass != 2"},
+        *restore,
         {"type": "writers.las", "filename": str(cleaned), "compression": "laszip"},
     ], work, "smrf", log)
     stage1.unlink(missing_ok=True)
@@ -178,11 +211,13 @@ def _survey_mask(odm_dsm: str, profile: dict) -> np.ndarray:
     return out.astype(bool)
 
 
-def clean(odm, laz: str, odm_dtm: str, odm_dsm: str, gsd_m: float | None, cfg: dict, work: Path, log: Path) -> dict:
+def clean(odm, laz: str, odm_dtm: str, odm_dsm: str, gsd_m: float | None, cfg: dict, work: Path, log: Path,
+          score_path=None) -> dict:
     """Write cleaned.laz, dtm.tif and dsm.tif into ``work``; return products + measurements."""
     tcfg = cfg["terrain"]
     work.mkdir(parents=True, exist_ok=True)
-    cleaned, info = classify(odm, laz, work, tcfg, log)
+    cleaned, info = classify(odm, laz, work, tcfg, log, score_path,
+                             int(round(cfg["detection"]["min_score"] * 100)))
     info["dtm"] = build_dtm(odm, cleaned, odm_dtm, odm_dsm, gsd_m, work, tcfg, log)
     dsm = work / "dsm.tif"
     info["dsm"] = _pdal(odm, [str(cleaned), {"type": "filters.range", "limits": f"Classification![{NOISE}:{NOISE}]"},

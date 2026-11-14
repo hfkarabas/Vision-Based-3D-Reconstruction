@@ -52,6 +52,27 @@ def test_image_cover_and_image_footprints(tmp_path):
     assert len(img) == 1 and abs(img.geometry.iloc[0].area - 100) < 10
 
 
+def test_elevated_footprints_need_image_support(tmp_path):
+    tr = from_origin(500000, 3100100, 0.5, 0.5)
+    dtm = np.full((200, 200), 10.0, dtype="float32")
+    dsm = dtm.copy()
+    dsm[20:80, 20:80] = 90.0     # tower roof, 30 m x 30 m
+    dsm[120:140, 120:140] = 18.0  # tree crown
+    score = np.zeros((200, 200), dtype="uint8")
+    score[26:86, 26:86] = 80      # image mask displaced by 3 m (leaning facades)
+    paths = {}
+    for name, arr in (("dsm", dsm), ("dtm", dtm), ("score", score)):
+        paths[name] = tmp_path / f"{name}.tif"
+        with rasterio.open(paths[name], "w", driver="GTiff", height=200, width=200, count=1, dtype=arr.dtype,
+                           crs=CRS, transform=tr) as ds:
+            ds.write(arr, 1)
+    ecfg = {"min_height_m": 2.5, "cell_m": 0.5, "open_m": 1.0, "support_buffer_m": 3.0, "min_support": 0.3,
+            "rectangularity": 0.8}
+    el = footprints.from_elevated(paths["dsm"], paths["dtm"], paths["score"], CRS, ecfg, 50, min_area=10)
+    assert len(el) == 1
+    assert abs(el.geometry.iloc[0].area - 900) < 60      # the roof where the points are, not the image mask
+
+
 def test_relabel_marks_elevated_points_inside_roofprints(tmp_path):
     dtm = tmp_path / "dtm.tif"
     with rasterio.open(dtm, "w", driver="GTiff", height=40, width=40, count=1, dtype="float32", crs=CRS,

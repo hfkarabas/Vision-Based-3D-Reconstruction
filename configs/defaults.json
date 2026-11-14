@@ -55,8 +55,20 @@
       "planarity": {"voxel_m": 0.3, "k": 30, "max_surface_variation": 0.03, "min_planar_fraction": 0.6},
       "max_osm_overlap": 0.3
     },
+    "elevated": {
+      "enabled": false,
+      "min_height_m": 2.5,
+      "cell_m": 0.5,
+      "open_m": 1.0,
+      "support_buffer_m": 3.0,
+      "min_support": 0.3,
+      "rectangularity": 0.8,
+      "max_overlap": 0.3
+    },
     "image": {
       "min_cover": 0.5,
+      "lean_factor": 0.6,
+      "max_lean_m": 50,
       "open_m": 0.5,
       "rectangularity": 0.8,
       "max_overlap": 0.3
