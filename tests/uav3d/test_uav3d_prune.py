@@ -22,3 +22,17 @@ def test_prune_keeps_products_and_report_and_deletes_intermediates(tmp_path):
                     "odm_report/report.pdf", "images/a.jpg", "odm_meshing/log.txt"}
     assert r["missing_products_after_prune"] == [] and r["freed_gb"] > 0
     assert not (tmp_path / "opensfm" / "undistorted").exists()
+
+
+def test_prune_keeps_split_sfm(tmp_path):
+    big = b"x" * (2 << 20)
+    files = ["submodels/opensfm/reconstruction.json", "submodels/submodel_0000/opensfm/reconstruction.json",
+             "submodels/submodel_0000/opensfm/stats/overlap.tif", "submodels/submodel_0000/opensfm/features/a.npz",
+             "submodels/opensfm/tracks.csv"]
+    for rel in files:
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(big)
+    odm.prune(tmp_path)
+    left = {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()}
+    assert left == set(files[:3])

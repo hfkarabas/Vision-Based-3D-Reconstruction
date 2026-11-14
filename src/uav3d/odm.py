@@ -113,6 +113,7 @@ def gsd_from_reconstruction(path: Path) -> dict:
 
 KEEP_ALWAYS = ("opensfm/reconstruction.json", "opensfm/stats/", "odm_report/", "images/", "options.json",
                "cameras.json", "odm_georeferencing/coords.txt", "odm_georeferencing/proj.txt")
+KEEP_SFM = ("opensfm/reconstruction.json", "opensfm/stats/")  # also kept inside submodels/ (split runs)
 SMALL_FILE = 1 << 20
 
 
@@ -126,7 +127,15 @@ def prune(project: Path) -> dict:
     for path in sorted(project.rglob("*"), key=lambda p: len(p.parts), reverse=True):
         rel = path.relative_to(project).as_posix()
         if path.is_file():
-            if rel in keep or any(rel == k or rel.startswith(k) for k in KEEP_ALWAYS) or path.stat().st_size < SMALL_FILE:
+            # split runs keep their SfM under submodels/opensfm/ and submodels/submodel_*/opensfm/
+            sub = None
+            if rel.startswith("submodels/"):
+                sub = rel[len("submodels/"):]
+                if not sub.startswith("opensfm/") and "/" in sub:
+                    sub = sub.split("/", 1)[1]
+            if (rel in keep or any(rel == k or rel.startswith(k) for k in KEEP_ALWAYS)
+                    or (sub is not None and any(sub == k or sub.startswith(k) for k in KEEP_SFM))
+                    or path.stat().st_size < SMALL_FILE):
                 continue
             freed += path.stat().st_size
             path.unlink()
