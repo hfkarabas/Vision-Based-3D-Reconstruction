@@ -14,3 +14,28 @@ Tahmin olarak "ok" ve "low_confidence" durumundaki binalar kullanılır.
 
 Yorum: yöntem ODM'nin nokta sınıflandırmasının iyi olduğu sahnede iyi, Çin sahnelerinde çöküyor
 (bkz. CLAUDE.md "Önemli bulgular"). Görüntü tabanlı kanıt eklenmeden genellenemez.
+
+## Ablasyon (2026-11-14): Sheffield'da seçilen adımlar AirZoo'yu kötüleştirdi mi?
+
+Aynı ODM çıktıları, `--skip-terrain` / `--config` ile; F1:
+
+| Varyant | Sheffield | AirZoo urban | AirZoo rural |
+|---|---|---|---|
+| A: arazi temizliği yok, düzlemsellik yok | 0,74 | 0,00 | 0,00 |
+| B: yalnız düzlemsellik | 0,93 | 0,03 | 0,00 |
+| C: yalnız arazi temizliği | 0,89 | 0,07 | 0,06 |
+| D: ikisi (mevcut) | 0,93 | 0,03 | 0,00 |
+
+Sonuç: hiçbir adım AirZoo'yu A'ya göre kötüleştirmedi; AirZoo her varyantta başarısız.
+Kök nedenler (bina tespitinden bağımsız):
+- **Urban:** SMRF penceresi 18 m (ODM varsayılanı), kule çatıları 40–50 m → büyük düz çatılar
+  zemin sınıfına düşüyor, kuleler DTM'ye gömülüyor ve tespit edilemiyor. Hizalama doğru
+  (SIFT+RANSAC: 111 inlier, 0,3 m).
+- **Rural:** bizim rekonstrüksiyon referans DOM'a göre bükülmüş (etiketli evler ~40 m kayık,
+  SIFT+RANSAC yalnız 25/72 inlier). Görüntüler haritalama uçuşu değil (örtüşme ≤8, RTK
+  uygulanmamış). Bu sahnede F1 tespit başarısını değil hizalama hatasını ölçüyor; DOM'a
+  çizilmiş etiketler bu rekonstrüksiyon için geçersiz.
+- Ayrıca: sabah yapılan faz korelasyonu hizalama kontrolü (zayıf tepe 0,018) güvenilir değildi.
+
+SAM 3 ilk deneme (kendi ortofotomuz, 15 cm): urban kare 2'de kuleler, rural kare 4'te ev/sera/
+barakalar doğru yerde; tarla ve ağaç yok. GPU 5 GB, karo başına 0,3 s.

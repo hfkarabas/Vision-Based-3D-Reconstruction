@@ -91,10 +91,10 @@ def run_buildings(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out:
 def cmd_run(args) -> int:
     out = Path(args.out).resolve()
     images_dir = Path(args.images).resolve()
-    cfg = plan.defaults()
+    cfg = plan.defaults(override=Path(args.config) if args.config else None)
     previous = _previous_odm(out) if args.reuse_odm else None
     rec = RunRecord(out / "run.json", uav3d=__version__, input=str(images_dir),
-                    defaults_status=cfg["status"])
+                    defaults_status=cfg["status"], config_override=args.config)
     stage = "setup"
     try:
         n_threads = plan.threads(args.threads)
@@ -171,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--gcp", help="ODM-format GCP file (default: auto-detect next to the images)")
     r.add_argument("--reuse-odm", action="store_true",
                    help="reuse ODM products of an earlier successful run in --out")
+    r.add_argument("--config", help="JSON deep-merged over configs/defaults.json (ablations; null removes a key)")
     r.add_argument("--skip-terrain", action="store_true",
                    help="use ODM's DTM/DSM/point cloud as they are (no outlier cleaning)")
     r.add_argument("--skip-buildings", action="store_true")

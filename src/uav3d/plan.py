@@ -15,8 +15,23 @@ import psutil
 from uav3d.tools import REPO
 
 
-def defaults(path: Path | None = None) -> dict:
-    return json.loads((path or REPO / "configs" / "defaults.json").read_text(encoding="utf-8"))
+def defaults(path: Path | None = None, override: Path | None = None) -> dict:
+    """configs/defaults.json, optionally deep-merged with an override file (ablations only:
+    an override is recorded in run.json and must never carry dataset-specific values)."""
+    cfg = json.loads((path or REPO / "configs" / "defaults.json").read_text(encoding="utf-8"))
+    if override:
+        _merge(cfg, json.loads(Path(override).read_text(encoding="utf-8")))
+    return cfg
+
+
+def _merge(base: dict, extra: dict) -> None:
+    for key, value in extra.items():
+        if value is None:
+            base.pop(key, None)
+        elif isinstance(value, dict) and isinstance(base.get(key), dict):
+            _merge(base[key], value)
+        else:
+            base[key] = value
 
 
 def ram_budget_gb(requested: float | None, cfg: dict) -> float:
