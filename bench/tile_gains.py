@@ -40,7 +40,8 @@ def main() -> int:
     rows = []
     for s, c, f in zip(sig, ev["clouds"]["coarse"], ev["clouds"]["fine"]):
         r = {**{k: s[k] for k in ("id", "ix", "iy", "overlap", "void", "density", "roughness", "relief")},
-             "cover_ref": c["cover_ref"], "cover_coarse": c["cover_ours"], "cover_fine": f["cover_ours"]}
+             "cover_ref": c["cover_ref"], "cover_coarse": c["cover_ours"], "cover_fine": f["cover_ours"],
+             "n_ref": c["n_ref"], "n_coarse": c["n_ours"], "n_fine": f["n_ours"]}
         for t in ("10", "20", "50"):
             for m in ("precision", "recall", "f"):
                 cv, fv = c.get(f"tau_{t}cm", {}).get(m), f.get(f"tau_{t}cm", {}).get(m)
