@@ -55,6 +55,14 @@
       "planarity": {"voxel_m": 0.3, "k": 30, "max_surface_variation": 0.03, "min_planar_fraction": 0.6},
       "max_osm_overlap": 0.3
     },
+    "merge": {
+      "enabled": false,
+      "base_gap_m": 2.0,
+      "gap_per_height": 0.1,
+      "height_tol_m": 3.0,
+      "height_tol_frac": 0.3,
+      "rectangularity": 0.8
+    },
     "elevated": {
       "enabled": false,
       "min_height_m": 2.5,

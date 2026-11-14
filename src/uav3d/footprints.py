@@ -312,6 +312,53 @@ def from_elevated(dsm_path, dtm_path, score_path, crs_wkt: str, ecfg: dict, min_
     return gpd.GeoDataFrame({"source": ["elevated"] * len(polys)}, geometry=polys, crs=crs).to_crs(crs_wkt)
 
 
+def merge_fragments(fp: gpd.GeoDataFrame, mcfg: dict) -> gpd.GeoDataFrame:
+    """Merge roofprint fragments of one building (roofs split by lift shafts, parapets, terraces).
+
+    Two fragments join when the gap between them is at most max(base_gap_m, gap_per_height *
+    lower height) and their heights agree within max(height_tol_m, height_tol_frac * taller).
+    Each group becomes the morphological closing of its parts. Needs the 'height_p90_m' column."""
+    if len(fp) < 2 or "height_p90_m" not in fp:
+        return fp
+    fp = fp.reset_index(drop=True)
+    h = fp["height_p90_m"].clip(lower=0).to_numpy()
+    reach = np.maximum(mcfg["base_gap_m"], mcfg["gap_per_height"] * h)
+    parent = list(range(len(fp)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    pairs = gpd.sjoin(fp.assign(geometry=fp.buffer(reach)), fp[["geometry"]], predicate="intersects")
+    for i, j in zip(pairs.index, pairs["index_right"]):
+        if i >= j:
+            continue
+        gap = fp.geometry[i].distance(fp.geometry[j])
+        lo, hi = min(h[i], h[j]), max(h[i], h[j])
+        if gap <= max(mcfg["base_gap_m"], mcfg["gap_per_height"] * lo) and \
+                hi - lo <= max(mcfg["height_tol_m"], mcfg["height_tol_frac"] * hi):
+            parent[find(i)] = find(j)
+    groups: dict[int, list[int]] = {}
+    for i in range(len(fp)):
+        groups.setdefault(find(i), []).append(i)
+    rows = []
+    for members in groups.values():
+        first = fp.iloc[members[0]].to_dict()
+        if len(members) == 1:
+            rows.append(first)
+            continue
+        r = max(reach[members].min() / 2, mcfg["base_gap_m"] / 2)
+        merged = unary_union([fp.geometry[m].buffer(r) for m in members]).buffer(-r)
+        if merged.geom_type == "MultiPolygon":
+            merged = max(merged.geoms, key=lambda g: g.area)
+        first.update(geometry=regularise(merged, mcfg["rectangularity"]), merged_parts=len(members),
+                     height_p90_m=float(h[members].max()))
+        rows.append(first)
+    return gpd.GeoDataFrame(rows, geometry="geometry", crs=fp.crs)
+
+
 def _not_overlapping(new: gpd.GeoDataFrame, existing: gpd.GeoDataFrame, max_overlap: float) -> gpd.GeoDataFrame:
     if not len(existing) or not len(new):
         return new
@@ -361,6 +408,12 @@ def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_
             pc = pc.assign(image_cover=cover.round(3))
             summary["pointcloud_rejected_by_image"] = int((cover < icfg["min_cover"]).sum())
             pc = pc[cover >= icfg["min_cover"]]
+        if fcfg["merge"]["enabled"] and elevation is not None and len(pc) > 1:
+            if "height_p90_m" not in pc:
+                pc = pc.assign(height_p90_m=heights(pc, elevation[0], elevation[1]).round(1))
+            before = len(pc)
+            pc = merge_fragments(pc, fcfg["merge"])
+            summary["pointcloud_merged_from"] = before
         fp = pd.concat([fp, pc], ignore_index=True)
     if score_path is not None:
         img = _not_overlapping(from_image(score_path, crs_wkt, icfg, min_score_pct, min_area), fp,

@@ -39,3 +39,18 @@ Kök nedenler (bina tespitinden bağımsız):
 
 SAM 3 ilk deneme (kendi ortofotomuz, 15 cm): urban kare 2'de kuleler, rural kare 4'te ev/sera/
 barakalar doğru yerde; tarla ve ağaç yok. GPU 5 GB, karo başına 0,3 s.
+
+## SAM 3 ve sonrası (2026-11-14 öğleden sonra), F1
+
+| Adım | Sheffield | AirZoo urban | AirZoo rural |
+|---|---|---|---|
+| Başlangıç (D) | 0,93 | 0,03 | 0,00 |
+| + SAM 3 görüntü kanıtı, görüntü taban izleri, Roofer için yeniden etiketleme | 0,97 | 0,20 | 0,00 (FP 24 → 1) |
+| + bina maskeli SMRF, yükseklikle orantılı görüntü toleransı (mevcut varsayılan) | 0,95 | 0,13 | 0,00 |
+| nDSM kaynaklı taban izi (kapalı) | 0,68 | 0,17 | — |
+| + parça birleştirme (kapalı) | 0,91 | 0,14 | — |
+
+Urban kuleleri: noktalar doğru yerde ve doğru yükseklikte (Roofer 56–88 m) ama nokta bulutu adayları
+çatının %1–20'si büyüklüğünde parçalar (çatıda az, cephede çok nokta; görüntüler haritalama uçuşu değil).
+Görüntü maskesi ise ortofotoda yatık görünen kuleye oturuyor (gerçek ortofoto değil). Kalan seçenekler:
+gerçek ortofoto (DSM'e görünürlüklü izdüşüm) ya da görüntü taban izinin yatma vektörüyle düzeltilmesi.

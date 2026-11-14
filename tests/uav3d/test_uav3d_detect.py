@@ -73,6 +73,18 @@ def test_elevated_footprints_need_image_support(tmp_path):
     assert abs(el.geometry.iloc[0].area - 900) < 60      # the roof where the points are, not the image mask
 
 
+def test_merge_joins_tower_fragments_but_not_neighbouring_houses():
+    mcfg = {"base_gap_m": 2.0, "gap_per_height": 0.1, "height_tol_m": 3.0, "height_tol_frac": 0.3, "rectangularity": 0.8}
+    parts = [box(0, 0, 12, 30), box(18, 0, 30, 30),          # tower roof split by a 6 m lift-shaft gap, 80 m tall
+             box(100, 0, 110, 10), box(114, 0, 124, 10),      # two houses 4 m apart, 5 m tall
+             box(36, 0, 40, 4)]                               # 5 m kiosk 6 m from the tower
+    fp = gpd.GeoDataFrame({"height_p90_m": [80.0, 78.0, 5.0, 5.5, 5.0]}, geometry=parts, crs=CRS)
+    out = footprints.merge_fragments(fp, mcfg)
+    assert len(out) == 4
+    tower = out[out["height_p90_m"] == 80.0].geometry.iloc[0]
+    assert tower.area > 800                                   # one roof, gap closed
+
+
 def test_relabel_marks_elevated_points_inside_roofprints(tmp_path):
     dtm = tmp_path / "dtm.tif"
     with rasterio.open(dtm, "w", driver="GTiff", height=40, width=40, count=1, dtype="float32", crs=CRS,
