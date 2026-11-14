@@ -48,18 +48,18 @@ def run_odm(rec: RunRecord, o: tools.Odm, images, summary, gcp, p, cfg, out: Pat
     gsd = None
     if p["split"] is None:
         s = rec.stage("odm:sfm")
-        s.update(odm.run(o, workdir, [*p["flags"], *extra, "--end-with", "opensfm"], log))
+        s.update(odm.run(o, workdir, [*p["flags"], *extra, "--end-with", "opensfm"], log, cpus=p.get("threads")))
         gsd = odm.gsd_from_reconstruction(project / odm.PRODUCTS["reconstruction"])
         gsd["metric"] = summary["gps_fraction"] > 0 or gcp is not None or geo is not None
         s["gsd"] = gsd
         rec.save()
         res = plan.resolution_flags(gsd["gsd_m"] if gsd["metric"] else None, cfg)
         s = rec.stage("odm:dense", resolution_flags=res)
-        s.update(odm.run(o, workdir, [*p["flags"], *extra, *res, "--rerun-from", "openmvs"], log))
+        s.update(odm.run(o, workdir, [*p["flags"], *extra, *res, "--rerun-from", "openmvs"], log, cpus=p.get("threads")))
     else:
         # Split-merge runs all stages per submodel; ODM caps resolutions by its own GSD estimate.
         s = rec.stage("odm:split")
-        s.update(odm.run(o, workdir, [*p["flags"], *extra], log))
+        s.update(odm.run(o, workdir, [*p["flags"], *extra], log, cpus=p.get("threads")))
     rec.save()
     prods = odm.products(project)
     missing = [k for k in TERRAIN if not prods[k]]

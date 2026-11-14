@@ -55,18 +55,38 @@ class RunRecord:
 
 
 def run_measured(cmd: list[str], log: Path, *, cwd: Path | None = None, env: dict | None = None,
-                 poll_s: float = 0.5) -> dict:
+                 poll_s: float = 0.5, cpus: int | None = None) -> dict:
     """Run ``cmd``, streaming stdout+stderr to ``log``; sample RSS of the whole process tree.
 
+    ``cpus`` pins the whole process tree to the first N logical CPUs (children inherit the
+    affinity; late children are pinned by the sampler). Needed because some ODM sub-steps
+    (OpenMVS point-cloud filter) ignore ODM's --max-concurrency.
     Returns {"returncode", "wall_s", "peak_rss_gb"}. Peak RSS is a sampled lower bound.
     """
     log.parent.mkdir(parents=True, exist_ok=True)
     peak = 0
     t0 = time.perf_counter()
+    mask = None
+    if cpus:
+        available = psutil.Process().cpu_affinity()
+        if cpus < len(available):
+            mask = available[:cpus]
     with open(log, "ab") as out:
         proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL)
         root = psutil.Process(proc.pid)
+        pinned: set[int] = set()
+
+        def pin(p: psutil.Process) -> None:
+            if mask is None or p.pid in pinned:
+                return
+            try:
+                p.cpu_affinity(mask)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            pinned.add(p.pid)
+
+        pin(root)
         stop = threading.Event()
 
         def sample() -> None:
@@ -76,6 +96,7 @@ def run_measured(cmd: list[str], log: Path, *, cwd: Path | None = None, env: dic
                     procs = [root, *root.children(recursive=True)]
                     rss = 0
                     for p in procs:
+                        pin(p)
                         try:
                             rss += p.memory_info().rss
                         except (psutil.NoSuchProcess, psutil.AccessDenied):
