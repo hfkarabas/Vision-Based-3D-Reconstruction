@@ -17,7 +17,10 @@ Araştırma konusu (tez başlığı, değiştirilmez):
 
 ## Teslim
 
-**30 Kasım 2026: ~10 sayfalık makale** (tez değil). Ürün cilası ikincil; araştırma katkısı, deney ve yazım öncelikli.
+**30 Kasım 2026: 40–50 sayfalık proje raporu (Türkçe) + 4–5 sayfalık konferans bildirisi** (tez değil). LaTeX,
+Overleaf'te düzenlenecek; kaynak `paper/` (`report.tex`, `conference.tex`, ortak `refs.bib`; bkz. `paper/README.md`).
+Biçim alandaki yayın geleneklerine göre (IEEE konferans; rapor A4/12 pt/Times/yazar-yıl). Ürün cilası ikincil;
+araştırma katkısı, deney ve yazım öncelikli.
 
 ## Çalışma şekli
 
@@ -79,7 +82,9 @@ Doğrulanan: Brighton Beach (18 foto, 2,7 dk, 2,8 GB), Sheffield (172 foto, 36 d
 ## Sıradaki işler
 
 1. **UseGeo-2/3 gece koşusu** (`bench/run_usegeo_night.ps1 -Threads 10`, 2026-11-14 18:46 başladı) → `outputs/holdout/usegeo_{2,3}/eval_geometry.json`. Split yolu hatasızsa adaptif deney için ara dosyalar duruyor (boş disk ≥90 GB ise).
-2. Bölgesel yeniden yoğunlaştırma fizibilitesi → adaptif zamanlayıcı (araştırma katkısı).
+2. Adaptif zamanlayıcı (araştırma katkısı): tasarım `Documentation/research/ADAPTIVE_SCHEDULER.md`. Fizibilite
+   tamam: OpenMVS ROI kırpması görüntü atmıyor (maliyet düşmez); çalışan yol OpenSfM `export_openmvs` görüntü listesiyle
+   karo başına alt sahne (`bench/feasibility/tile_export.py`; 8 görüntü, 150 s, 0,3 GB). Sıradaki: `uav3d/refine.py`.
 3. İsteğe bağlı: UseGeo sabit kalibrasyonunu ODM'ye vererek +0,35 m sapmayı gider.
 4. Ağaç katmanı (CHM + tek ağaç tespiti) — zaman kalırsa.
 5. Büyük ölçek: Ziegeleipark diske sığmıyor (zip korunuyor, onaysız silinmez); alternatif UseGeo 3 şeridin birleşimi.
