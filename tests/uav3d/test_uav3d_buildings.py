@@ -80,6 +80,12 @@ def test_pointcloud_roofprints_recover_buildings_and_drop_noise(tmp_path):
     assert areas[0] == pytest.approx(36, rel=0.15) and areas[1] == pytest.approx(100, rel=0.15)
 
 
+def test_no_osm_buildings_gives_empty_frame_not_error(monkeypatch):
+    monkeypatch.setattr(footprints, "_overpass", lambda *a, **k: ([], "https://example.invalid"))
+    gdf = footprints.fetch_osm((0, 0, 1, 1), ["https://example.invalid"])
+    assert len(gdf) == 0 and gdf.crs.to_epsg() == 4326
+
+
 def test_gcp_autodetect_requires_odm_header(tmp_path):
     (tmp_path / "images").mkdir()
     img = tmp_path / "images" / "a.jpg"

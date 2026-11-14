@@ -69,7 +69,10 @@ def fetch_osm(bbox_wgs84, urls: list[str], retries: int = 3, timeout_s: int = 18
                 poly = Polygon(coords)
                 if poly.is_valid and poly.area > 0:
                     rows.append({"osm_id": f"{el['type'][0]}{el['id']}", "geometry": poly})
-    gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
+    if rows:
+        gdf = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
+    else:  # no OSM buildings in the area: an empty frame, not an error
+        gdf = gpd.GeoDataFrame({"osm_id": []}, geometry=[], crs="EPSG:4326")
     gdf.attrs["endpoint"] = used
     return gdf
 
