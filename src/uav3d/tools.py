@@ -52,13 +52,32 @@ class Odm:
             raise ToolError(f"{name}.exe not found in ODM bundle {self.bin}")
         return path
 
+    def split_shims(self) -> Path:
+        """ODM's split-merge re-runs itself per submodel as ``python3 <home>/run ...`` (POSIX layout).
+        On Windows ``python3`` is absent or the Microsoft Store stub and ``run`` does not exist, so every
+        split run fails with "Child returned 1". Provide both, pointing at ODM's own Python and run.py."""
+        shims = self.home / "uav3d-shims"
+        launcher = shims / "python3.cmd"
+        text = f'@"{self.python}" -X utf8 %*\r\n'
+        if not launcher.is_file() or launcher.read_text(encoding="utf-8") != text:
+            shims.mkdir(exist_ok=True)
+            launcher.write_text(text, encoding="utf-8")
+        run = self.home / "run"
+        entry = ("import os, runpy, sys\n"
+                 "sys.argv[0] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'run.py')\n"
+                 "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+        if not run.is_file() or run.read_text(encoding="utf-8") != entry:
+            run.write_text(entry, encoding="utf-8")
+        return shims
+
     def env(self) -> dict[str, str]:
         """Environment equivalent to ODM's win32env.bat (for run.py and bundled GDAL/PDAL)."""
         env = os.environ.copy()
         venv = self.home / "venv"
         system32 = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32"
         env.update(
-            PATH=os.pathsep.join(map(str, [venv / "Scripts", self.bin, self.bin / "opensfm" / "bin", system32])),
+            PATH=os.pathsep.join(map(str, [self.split_shims(), venv / "Scripts", self.bin, self.bin / "opensfm" / "bin",
+                                           system32])),
             GDAL_DATA=str(self.bin / "data" / "gdal"),
             GDAL_DRIVER_PATH=str(self.bin / "gdalplugins"),
             PDAL_DRIVER_PATH=str(self.bin),

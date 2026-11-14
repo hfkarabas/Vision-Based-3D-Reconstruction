@@ -23,8 +23,11 @@ try {
         Write-Host "[$(Get-Date -Format HH:mm:ss)] UseGeo-$n ODM (free $free GB, keep=$($keep.Count -gt 0)) ..."
         & $Python -m uav3d run "datasets\usegeo\dataset-$n\uav3d_input" --out $out --threads $Threads `
             --skip-buildings @keep
-        Write-Host "[$(Get-Date -Format HH:mm:ss)] UseGeo-$n exit=$LASTEXITCODE; evaluating ..."
-        & $Python -m uav3d.evaluate.geometry $out "datasets\usegeo\dataset-$n\LiDAR_dataset$n.las"
+        $code = $LASTEXITCODE
+        Write-Host "[$(Get-Date -Format HH:mm:ss)] UseGeo-$n exit=$code"
+        if ($code -eq 0) {
+            & $Python -m uav3d.evaluate.geometry $out "datasets\usegeo\dataset-$n\LiDAR_dataset$n.las"
+        }
         Write-Host "[$(Get-Date -Format HH:mm:ss)] UseGeo-$n done; free $([math]::Round((Get-PSDrive C).Free/1GB)) GB"
     }
 }
