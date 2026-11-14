@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from uav3d import __version__, buildings, export, footprints, ingest, odm, plan, tools
+from uav3d import __version__, buildings, export, footprints, ingest, odm, plan, terrain, tools
 from uav3d.record import RunRecord
 
 TERRAIN = ("point_cloud", "dsm", "dtm", "orthophoto")
@@ -121,7 +121,19 @@ def cmd_run(args) -> int:
             rec.set("plan", p)
             stage = "odm"
             prods, gsd = run_odm(rec, o, images, summary, gcp, p, cfg, out)
-        rec.set("products", prods)
+        rec.set("products", prods)  # always ODM's own products, so --reuse-odm finds them
+        if not args.skip_terrain:
+            stage = "terrain"
+            s = rec.stage(stage)
+            info = terrain.clean(tools.odm(), prods["point_cloud"], prods["dtm"], prods["dsm"],
+                                 gsd["gsd_m"] if gsd and gsd.get("metric") else None, cfg, out / "terrain",
+                                 out / "logs" / "terrain.log")
+            overlap = Path(prods["dtm"]).parents[1] / "opensfm" / "stats" / "overlap.tif"
+            if overlap.is_file():
+                info["image_overlap"] = terrain.overlap_summary(overlap)
+            s.update(info)
+            rec.save()
+            prods = {**prods, **info["products"]}
         if not args.skip_buildings:
             stage = "buildings"
             run_buildings(rec, prods, gsd, cfg, out, n_threads)
@@ -156,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--gcp", help="ODM-format GCP file (default: auto-detect next to the images)")
     r.add_argument("--reuse-odm", action="store_true",
                    help="reuse ODM products of an earlier successful run in --out")
+    r.add_argument("--skip-terrain", action="store_true",
+                   help="use ODM's DTM/DSM/point cloud as they are (no outlier cleaning)")
     r.add_argument("--skip-buildings", action="store_true")
     r.add_argument("--skip-export", action="store_true", help="no glb/CityJSON/Blender scene")
     r.set_defaults(func=cmd_run)

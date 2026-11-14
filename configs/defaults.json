@@ -11,6 +11,22 @@
     "dem_gsd_factor": 2.0
   },
   "odm_flags": ["--dsm", "--dtm", "--skip-3dmodel", "--auto-boundary"],
+  "terrain": {
+    "elm": {"cell": 10.0, "threshold": 1.0},
+    "outlier": {"method": "statistical", "mean_k": 8, "multiplier": 2.0},
+    "smrf": {"scalar": 1.25, "slope": 0.15, "threshold": 0.5, "window": 18.0},
+    "low_surface": {"cell_m": 5.0, "window_cells": 5, "base_tolerance_m": 3.0},
+    "dtm_cell_gsd_factor": 10,
+    "dtm_cell_min_m": 0.25,
+    "dtm_cell_max_m": 1.0,
+    "fill_max_distance_m": 100,
+    "dsm_fill_max_distance_m": 2.0,
+    "fill_smoothing_iterations": 2,
+    "median_m": 1.5,
+    "health_cell_m": 0.5,
+    "local_window_m": 5,
+    "pit_depth_m": 1.0
+  },
   "footprints": {
     "osm_overpass_urls": ["https://overpass-api.de/api/interpreter",
                           "https://overpass.kumi.systems/api/interpreter"],
