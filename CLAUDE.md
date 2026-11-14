@@ -85,7 +85,9 @@ Doğrulanan: Brighton Beach (18 foto, 2,7 dk, 2,8 GB), Sheffield (172 foto, 36 d
 1. **UseGeo-2/3 gece koşusu** (`bench/run_usegeo_night.ps1 -Threads 10`, 2026-11-14 18:46 başladı) → `outputs/holdout/usegeo_{2,3}/eval_geometry.json`. Split yolu hatasızsa adaptif deney için ara dosyalar duruyor (boş disk ≥90 GB ise).
 2. Adaptif zamanlayıcı (araştırma katkısı): tasarım `Documentation/research/ADAPTIVE_SCHEDULER.md`. Fizibilite
    tamam: OpenMVS ROI kırpması görüntü atmıyor (maliyet düşmez); çalışan yol OpenSfM `export_openmvs` görüntü listesiyle
-   karo başına alt sahne (`bench/feasibility/tile_export.py`; 8 görüntü, 150 s, 0,3 GB). Sıradaki: `uav3d/refine.py`.
+   karo başına alt sahne. `uav3d/refine.py` yazıldı (karo ızgarası, alt küme dışa aktarma, CPU'da yoğunlaştırma, PDAL
+   birleştirme; Sheffield'da uçtan uca: 8/172 görüntü, 140 s, 0,29 GB, kaba bulutla dz medyan 4 mm). Sıradaki:
+   referanssız sinyaller + kazanç/maliyet modeli + zamanlayıcı (`uav3d/schedule.py`), UseGeo-1'de ayar.
 3. İsteğe bağlı: UseGeo sabit kalibrasyonunu ODM'ye vererek +0,35 m sapmayı gider.
 4. Ağaç katmanı (CHM + tek ağaç tespiti) — zaman kalırsa.
 5. Büyük ölçek: Ziegeleipark diske sığmıyor (zip korunuyor, onaysız silinmez); alternatif UseGeo 3 şeridin birleşimi.
