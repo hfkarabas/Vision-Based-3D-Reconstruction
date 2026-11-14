@@ -15,6 +15,10 @@ Araştırma konusu (tez başlığı, değiştirilmez):
 2. **Araştırma konusu yukarıdaki başlıktır.** Ürün doğrulaması (bir sahnede çalışan demo) araştırma sonucu değildir; ikisi ayrı raporlanır.
 3. **Genellik.** Program yalnızca seçili dataset için değil, bilgisayarda olan ve olmayan, ileride test/validation için kullanılacak tüm datasetlerde çalışmalıdır. Datasete özel eşik, yol, bölge dosyası veya sabit ayar üretim yoluna girmez. Ayar setleri ile hold-out doğrulama setleri baştan ayrılır.
 
+## Teslim
+
+**30 Kasım 2026: ~10 sayfalık makale** (tez değil). Ürün cilası ikincil; araştırma katkısı, deney ve yazım öncelikli.
+
 ## Çalışma şekli
 
 - Kullanıcı: Furkan. Türkçe, doğrudan ve kısa iletişim tercih eder; dolgu yok. Gece koşularında fan sesi istemez → uzun koşular `--threads 10` ile.
