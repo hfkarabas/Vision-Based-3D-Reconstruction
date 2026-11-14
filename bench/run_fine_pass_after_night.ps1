@@ -18,9 +18,9 @@ try {
            Where-Object { $_.CommandLine -like '*run_usegeo_night.ps1*' }) {
         Start-Sleep 60
     }
-    Write-Host "[$(Get-Date -Format HH:mm:ss)] UseGeo-1 fine pass (level 3, 3x3 tiles) ..."
+    Write-Host "[$(Get-Date -Format HH:mm:ss)] UseGeo-1 fine pass (level 3: depth maps, sub-scenes, fuse) ..."
     & $Python bench\fine_pass.py outputs\tune\usegeo_1\odm\project outputs\tune\usegeo_1\fine_pass `
-        --grid 3 --level 3 --k 20 --threads $Threads
+        --level 3 --threads $Threads
     Write-Host "[$(Get-Date -Format HH:mm:ss)] fine pass exit=$LASTEXITCODE; free $([math]::Round((Get-PSDrive C).Free/1GB)) GB"
 }
 finally {
