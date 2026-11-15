@@ -109,6 +109,28 @@ Bütçe `B` ∈ {%25, %50, %75} × (tam ince tekdüze geçişin süresi). Hepsi 
 Ölçütler: τ = 10/20/50 cm'de precision/recall/F (mevcut `uav3d.evaluate.geometry`, dikey ofset hizalı), duvar
 saati, tepe RSS, seçilen karo oranı. Çürütme ölçütleri literatür belgesindeki gibi.
 
+## 4a. Hold-out sonuçları (UseGeo-2/3, 2026-11-15)
+
+`bench/holdout_analysis.py` → `outputs/holdout/hypothesis.json`, şekil `paper/figures/butce_kalite.pdf`.
+Uzamsal blok bootstrap (4×4 karo = 100 m süper blok, 2000 tekrar), τ = 20 cm. Uygulanan U-low ve tam ince;
+U-mid ve split-merge karşılaştırması yapılmadı (raporda sınırlılık).
+
+| F20 % | U2 β25/50/75 | U3 β25/50/75 |
+|---|---|---|
+| Static | 68,4 / 70,1 / 72,6 | 63,1 / 64,1 / 66,2 |
+| Random | 69,8 / 70,7 / 73,2 | 64,1 / 65,2 / 65,3 |
+| Adaptive | 72,4 / 73,6 / 75,3 | 64,4 / 66,2 / 68,9 |
+| Oracle | 72,5 / 74,1 / 75,5 | 67,2 / 68,7 / 71,5 |
+| kaba / tam ince | 70,1 / 77,3 | 64,9 / 70,8 |
+
+- Toplam maliyet c = (T_kaba + β T_ince) / T_ince ≈ 0,25 + β (üç şeritte kaba/ince 0,25–0,26).
+- Spearman(tahmin, gerçek katkı) 0,66 / 0,69 (ayar 0,68). Zararlı karo payı %7 / %10 (ayar %29).
+- H1 reddedildi: recall artışı c=0,5'te +1,7 / +1,1, β=0,5'te +2,8 / +2,4 puan (eşik +5).
+- H2: Adaptive − Static F, β=0,5: U2 +3,5 [1,6; 5,6], U3 +2,0 [−0,2; 3,8]; c=0,5'te ikisi de anlamlı.
+- H3: yön genellendi, büyüklük genellenmedi (tam ince kazancın β=0,5'te geri kazanılan payı %89 / %48 / %22).
+- Ek yük: c≈1'de tam ince, hold-out şeritlerde Adaptive'den 2,0 / 1,9 puan iyi; ayarda Adaptive 0,9 puan önde.
+  Seçici inceltme yalnız c<1'de anlamlı. Tepe bellek avantajı yok (alt sahneler de 10–11 GB).
+
 ## 5. Açık riskler
 
 - Karo sınırında dikiş: komşu karoları gören görüntüler farklı düzeyde → füzyonu ROI ile karo + kenar payına sınırla.
