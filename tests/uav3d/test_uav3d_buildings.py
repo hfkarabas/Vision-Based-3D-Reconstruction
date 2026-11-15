@@ -192,3 +192,22 @@ def test_roofer_run_clears_outputs_of_an_earlier_run(tmp_path, monkeypatch):
     r = buildings.run(tmp_path / "roofer.exe", tmp_path / "c.laz", tmp_path / "r.gpkg", out, None, plan.defaults(),
                       tmp_path / "l.log")
     assert r["summary"] == []
+
+
+def test_assess_flags_ragged_traced_outlines_only():
+    from uav3d import buildings, plan
+
+    rcfg = plan.defaults()["roofer"]
+    base = {"rf_h_ground": 0.0, "rf_h_roof_70p": 6.0, "rf_rmse_lod22": 0.3}
+    assert buildings._assess({**base, "source": "pointcloud", "rectangularity": 0.6}, rcfg)["footprint_irregular"]
+    assert not buildings._assess({**base, "source": "pointcloud", "rectangularity": 1.0}, rcfg)["footprint_irregular"]
+    assert not buildings._assess({**base, "source": "osm", "rectangularity": 0.6}, rcfg)["footprint_irregular"]
+
+
+def test_assess_flags_a_tower_above_the_roof():
+    from uav3d import buildings, plan
+
+    rcfg = plan.defaults()["roofer"]
+    base = {"rf_h_ground": 0.0, "rf_h_roof_70p": 6.0, "rf_rmse_lod22": 0.3}
+    assert buildings._assess({**base, "rf_h_roof_max": 13.0}, rcfg)["roof_spike"]
+    assert not buildings._assess({**base, "rf_h_roof_max": 7.0}, rcfg)["roof_spike"]

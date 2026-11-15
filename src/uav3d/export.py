@@ -2,8 +2,9 @@
 
 - Terrain: ODM's dem2mesh on the DTM (``-rtc``: vertices relative to the raster centre, so
   float32 PLY keeps cm precision), textured with the orthophoto.
-- Buildings: Roofer CityJSONSeq, LoD2.2 (else LoD1.2) solids triangulated with earcut;
-  roof and wall colours from CityJSON semantics; low-confidence buildings tinted.
+- Buildings: Roofer CityJSONSeq, LoD2.2 (else LoD1.2; export.building_lod) solids triangulated with
+  earcut; one material per building, flagged buildings (tower above the roof or low-confidence roof
+  fit, see flagged) in export.flag_colour_rgba.
 - Outputs: scene.glb (glTF 2.0, Y-up, local origin), buildings.city.json (CityJSON 2.0,
   georeferenced), scene.json (CRS + origin to georeference the glb), optional scene.blend.
 """
@@ -21,8 +22,8 @@ from rasterio.enums import Resampling
 
 from uav3d.record import run_measured
 
-ROOF, WALL, GROUND = [178, 74, 58, 255], [222, 216, 205, 255], [120, 120, 120, 255]
-LOW_CONFIDENCE_TINT = np.array([255, 170, 0, 255])
+BUILDING = [215, 215, 215, 255]
+FLAG = [230, 0, 200, 255]  # magenta: apart from terrain greens/greys and the grey buildings
 EXPORTED_STATUSES = {"ok", "low_confidence"}
 # glTF is Y-up, right-handed; map projected (east, north, up) -> (x, y, z) = (east, up, -north)
 Z_UP_TO_Y_UP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float)
@@ -115,8 +116,8 @@ def pick_lod(per: dict, mode: str = "1.2", lod22_max_rmse_m: float | None = None
     return ["1.2", "2.2"]
 
 
-def building_meshes(jsonl_files: list[Path], per_building: dict, origin: np.ndarray, lod_mode: str = "1.2",
-                    lod22_max_rmse_m: float | None = None) -> dict[str, trimesh.Trimesh]:
+def building_meshes(jsonl_files: list[Path], per_building: dict, origin: np.ndarray, lod_mode: str = "2.2",
+                    lod22_max_rmse_m: float | None = None, flag_rgba=FLAG) -> dict[str, trimesh.Trimesh]:
     """One mesh per exported building (pick_lod), in coordinates relative to origin."""
     parts: dict[str, list[trimesh.Trimesh]] = {}
     for path in jsonl_files:
@@ -138,27 +139,35 @@ def building_meshes(jsonl_files: list[Path], per_building: dict, origin: np.ndar
                 if not geom:
                     continue
                 surfaces = geom["boundaries"][0] if geom["type"] == "Solid" else geom["boundaries"]
-                kinds = _semantic_types(geom)
-                v_all, f_all, c_all = [], [], []
-                for i, surface in enumerate(surfaces):
+                v_all, f_all = [], []
+                for surface in surfaces:
                     rings = [verts[np.asarray(r)] for r in surface]
                     tri = _triangulate(rings)
                     if tri is None:
                         continue
-                    kind = kinds[i] if i < len(kinds) else None
-                    colour = ROOF if kind == "RoofSurface" else GROUND if kind == "GroundSurface" else WALL
                     f_all.append(tri + sum(len(v) for v in v_all))
                     v_all.append(np.vstack(rings))
-                    c_all.append(np.tile(colour, (len(tri), 1)))
                 if not v_all:
                     continue
                 mesh = trimesh.Trimesh(vertices=np.vstack(v_all), faces=np.vstack(f_all), process=False)
-                colours = np.vstack(c_all).astype(float)
-                if per_building[bid]["status"] == "low_confidence":
-                    colours = 0.5 * colours + 0.5 * LOW_CONFIDENCE_TINT
-                mesh.visual.face_colors = colours.astype(np.uint8)
                 parts.setdefault(bid, []).append(mesh)
-    return {bid: trimesh.util.concatenate(ms) for bid, ms in parts.items()}
+    out = {}
+    for bid, ms in parts.items():
+        m = trimesh.util.concatenate(ms)
+        colour = flag_rgba if flagged(per_building[bid]) else BUILDING
+        # one glTF material per building: Blender shows its base colour (vertex colours it does not)
+        m.visual = trimesh.visual.TextureVisuals(material=trimesh.visual.material.PBRMaterial(
+            name="flagged" if colour is flag_rgba else "building", baseColorFactor=colour,
+            metallicFactor=0.0, roughnessFactor=1.0))
+        out[bid] = m
+    return out
+
+
+def flagged(per: dict) -> bool:
+    """Buildings whose model is not trustworthy: a tower above the roof (roof maximum far above its
+    70th percentile, typically a tree crown), or a roof fit so poor that the outline probably holds
+    trees (Roofer RMSE above the low-confidence threshold). See buildings._assess."""
+    return bool(per.get("roof_spike")) or per.get("status") == "low_confidence"
 
 
 def merge_cityjson(jsonl_files: list[Path], out: Path) -> int:
@@ -265,8 +274,10 @@ def export(odm, products: dict, buildings_summary: dict | None, cfg: dict, out_d
     meshes = {}
     if buildings_summary and buildings_summary.get("status") == "ok":
         files = [Path(f) for f in buildings_summary["files"]]
-        mode, thr = ecfg.get("building_lod", "1.2"), ecfg.get("lod22_max_rmse_m")
-        meshes = building_meshes(files, buildings_summary["per_building"], origin, mode, thr)
+        mode, thr = ecfg.get("building_lod", "2.2"), ecfg.get("lod22_max_rmse_m")
+        meshes = building_meshes(files, buildings_summary["per_building"], origin, mode, thr,
+                                 list(ecfg.get("flag_colour_rgba", FLAG)))
+        result["flagged_buildings"] = sorted(b for b in meshes if flagged(buildings_summary["per_building"][b]))
         result["lod_by_building"] = {bid: pick_lod(per, mode, thr)[0]
                                      for bid, per in buildings_summary["per_building"].items() if bid in meshes}
         result["cityjson"] = str(out_dir / "buildings.city.json")

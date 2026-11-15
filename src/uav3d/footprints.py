@@ -110,6 +110,12 @@ def covered(footprints: gpd.GeoDataFrame, dsm_path, min_fraction: float) -> gpd.
     return pd.Series(fractions, index=footprints.index) >= min_fraction
 
 
+def rectangularity(poly) -> float:
+    """Area over the area of the minimum rotated rectangle (1 = rectangle; ragged traced outlines are low)."""
+    rect = poly.minimum_rotated_rectangle
+    return float(poly.area / rect.area) if rect.area > 0 else 0.0
+
+
 def regularise(poly: Polygon, rectangularity: float) -> Polygon:
     """Replace a ragged outline by its minimum rotated rectangle when it fills that rectangle
     well enough (most roofprints are rectangular); otherwise keep the simplified outline."""
@@ -506,5 +512,7 @@ def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_
     if len(fp):
         fp = fp.reset_index(drop=True)
         fp["fp_id"] = [f"fp{i:05d}" for i in range(len(fp))]  # Roofer --id-attribute
+        # outline quality, carried by Roofer into the CityJSON attributes (buildings._assess)
+        fp["rectangularity"] = [round(rectangularity(p), 3) for p in fp.geometry]
         fp.to_file(out_gpkg, layer="roofprints", driver="GPKG")
     return summary

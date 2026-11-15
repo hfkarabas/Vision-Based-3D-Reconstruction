@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 import numpy as np
 import trimesh
@@ -60,3 +60,18 @@ def test_scene_glb_is_y_up(tmp_path):
     export.write_scene(None, {"b": box}, out)
     loaded = trimesh.load(out).dump(concatenate=True)
     assert np.allclose(loaded.extents, [2, 6, 4]) and loaded.bounds[0][1] == np.float64(0.0)
+
+
+def test_flagged_buildings_get_the_flag_material_in_the_glb(tmp_path):
+    seq = write_seq(tmp_path / "t.city.jsonl")
+    per = {"b1": {"status": "ok", "roof_spike": True}, "b2": {"status": "ok", "footprint_irregular": True}}
+    meshes = export.building_meshes([seq], per, origin=np.array([1000.0, 2000.0, 0.0]), flag_rgba=[230, 0, 200, 255])
+    assert meshes["b1"].visual.material.name == "flagged"
+    assert meshes["b2"].visual.material.name == "building"
+    assert export.flagged({"status": "low_confidence"}) and not export.flagged({"status": "ok"})
+    out = tmp_path / "s.glb"
+    export.write_scene(None, meshes, out)
+    gltf = json.loads(out.read_bytes()[20:20 + int.from_bytes(out.read_bytes()[12:16], "little")])
+    colours = sorted(tuple(round(c * 255) for c in m["pbrMetallicRoughness"]["baseColorFactor"]) for m in gltf["materials"])
+    assert (230, 0, 200, 255) in colours and (215, 215, 215, 255) in colours
+

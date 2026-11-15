@@ -100,8 +100,28 @@ def _assess(attrs: dict, rcfg: dict) -> dict:
         status = "low_confidence"
     else:
         status = "ok"
+    rect = attrs.get("rectangularity")
+    # traced (non-OSM) outline far from rectangular (recorded only: most traced outlines are ragged)
+    irregular = (attrs.get("source") not in (None, "osm") and rect is not None
+                 and rect < rcfg.get("irregular_footprint_rectangularity", 0.8))
+    # top of the modelled roof far above the 70th-percentile roof height: a tower in the model, typically
+    # a tree crown over the roof that LoD2.2 extrudes as a separate roof part
+    h_max = attrs.get("lod22_top", attrs.get("rf_h_roof_max"))
+    if h_max is None:
+        h_max = attrs.get("rf_h_roof_max")
+    spike = round(h_max - h70, 2) if h_max is not None and h70 is not None else None
     return {"height_m": height, "rmse_lod22_m": None if rmse is None else round(rmse, 3),
-            "roof_planes": attrs.get("rf_roof_planes"), "status": status}
+            "roof_planes": attrs.get("rf_roof_planes"), "rectangularity": rect,
+            "footprint_irregular": bool(irregular), "roof_spike_m": spike,
+            "roof_spike": bool(spike is not None and spike > rcfg.get("roof_spike_m", 3.0)), "status": status}
+
+
+def _indices(boundaries):
+    if isinstance(boundaries, int):
+        yield boundaries
+    else:
+        for b in boundaries:
+            yield from _indices(b)
 
 
 def summarise(out_dir: Path, rcfg: dict) -> dict:
@@ -111,17 +131,32 @@ def summarise(out_dir: Path, rcfg: dict) -> dict:
         raise BuildingError(f"Roofer produced no CityJSONSeq output in {out_dir}")
     lods, modes, per_building = Counter(), Counter(), {}
     for f in files:
+        scale, translate = None, None
         for line in f.read_text(encoding="utf-8").splitlines():
             obj = json.loads(line)
+            if "transform" in obj:
+                scale, translate = obj["transform"]["scale"][2], obj["transform"]["translate"][2]
+            zs = obj.get("vertices") or []
             for key, co in obj.get("CityObjects", {}).items():
                 attrs = co.get("attributes", {})
                 if co.get("type") == "Building":
                     modes[str(attrs.get("rf_extrusion_mode", "?"))] += 1
+                    # highest point of the modelled LoD2.2 geometry (Roofer's rf_h_roof_max can miss
+                    # parts extruded to tree-crown height)
+                    top = None
+                    if scale is not None and zs:
+                        idx = {i for c in co.get("children", []) for g in obj["CityObjects"].get(c, {}).get("geometry", [])
+                               if g.get("lod") == "2.2" for i in _indices(g["boundaries"])}
+                        if idx:
+                            top = max(zs[i][2] for i in idx) * scale + translate
                     per_building[key] = {"osm_id": attrs.get("osm_id"), "source": attrs.get("source"),
-                                         **_assess(attrs, rcfg)}
+                                         **_assess({**attrs, "lod22_top": top}, rcfg)}
                 for g in co.get("geometry", []):
                     lods[str(g.get("lod"))] += 1
     status = Counter(b["status"] for b in per_building.values())
     return {"files": [str(f) for f in files], "buildings": len(per_building),
-            "by_status": dict(status), "geometries_by_lod": dict(lods),
+            "by_status": dict(status),
+            "footprint_irregular": sum(b["footprint_irregular"] for b in per_building.values()),
+            "roof_spike": sum(b["roof_spike"] for b in per_building.values()),
+            "geometries_by_lod": dict(lods),
             "extrusion_modes": dict(modes), "per_building": per_building}
