@@ -69,24 +69,6 @@ def terrain_mesh(odm, dtm, ortho, work: Path, max_vertices: int, max_texture_px:
     return mesh, info
 
 
-def textured_model(obj_path, origin: np.ndarray) -> list[tuple[str, trimesh.Trimesh]]:
-    """ODM's textured 3D model (odm_texturing/odm_textured_model_geo.obj, one texture atlas per
-    material) shifted to coordinates relative to origin. The OBJ is in ODM's frame: UTM minus the
-    coords.txt offset, z up."""
-    from uav3d.refine import utm_offset
-
-    project = Path(obj_path).parents[1]
-    ox, oy = utm_offset(project)
-    loaded = trimesh.load(obj_path, force="scene", process=False)
-    shift = np.array([ox, oy, 0.0]) - origin
-    parts = []
-    for i, (name, geom) in enumerate(sorted(loaded.geometry.items())):
-        m = geom.copy()
-        m.apply_translation(shift)
-        parts.append((f"mesh_{i:03d}", m))
-    return parts
-
-
 def _triangulate(ring_points: list[np.ndarray]) -> np.ndarray | None:
     """Earcut a planar 3D polygon (outer ring + holes) in its own plane; returns (k, 3) indices
     into the concatenated rings, or None for degenerate faces."""
@@ -232,15 +214,10 @@ def write_scene(terrain, buildings: dict[str, trimesh.Trimesh], out: Path) -> di
 
 BLENDER_SCRIPT = """
 import bpy, math, sys
-glb, blend, png, hide = sys.argv[sys.argv.index('--') + 1:]
+glb, blend, png = sys.argv[sys.argv.index('--') + 1:]
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=glb)
 objs = [o for o in bpy.context.scene.objects if o.type == 'MESH']
-if hide == '1':
-    for o in objs:
-        if o.name.startswith('building_'):
-            o.hide_set(True)
-            o.hide_render = True
 from mathutils import Vector
 xs = [o.matrix_world @ Vector(c) for o in objs for c in o.bound_box]
 cx = sum(p.x for p in xs) / len(xs); cy = sum(p.y for p in xs) / len(xs); cz = sum(p.z for p in xs) / len(xs)
@@ -273,14 +250,13 @@ bpy.ops.wm.save_as_mainfile(filepath=blend)
 """
 
 
-def blender_scene(blender: Path, glb: Path, out_dir: Path, log: Path, hide_buildings: bool = False) -> dict:
-    """Open the glb in Blender headless; save scene.blend and a preview render. hide_buildings: building
-    objects stay in the file but hidden (eye icon in the outliner), e.g. over a textured 3D model."""
+def blender_scene(blender: Path, glb: Path, out_dir: Path, log: Path) -> dict:
+    """Open the glb in Blender headless; save scene.blend and a preview render."""
     script = out_dir / "_blender_import.py"
     script.write_text(BLENDER_SCRIPT, encoding="utf-8")
     blend, png = out_dir / "scene.blend", out_dir / "preview.png"
     cmd = [str(blender), "-b", "--factory-startup", "--python-exit-code", "1", "--python", str(script),
-           "--", str(glb), str(blend), str(png), "1" if hide_buildings else "0"]
+           "--", str(glb), str(blend), str(png)]
     info = run_measured(cmd, log)
     script.unlink(missing_ok=True)
     if info["returncode"] != 0 or not blend.is_file():
@@ -298,13 +274,6 @@ def export(odm, products: dict, buildings_summary: dict | None, cfg: dict, out_d
                                   n_threads)
     origin = np.array(tinfo["center"])
     result = {"terrain": tinfo}
-    model = products.get("textured_model")
-    if model and Path(model).is_file():
-        # oblique capture: ODM's textured 3D model replaces the DTM mesh (facades, towers); the building
-        # models stay in the scene, hidden in Blender, since they would cover the same surfaces
-        terrain = textured_model(model, origin)
-        result["scene_surface"] = {"source": model, "parts": len(terrain),
-                                   "faces": int(sum(len(m.faces) for _, m in terrain))}
     meshes = {}
     if buildings_summary and buildings_summary.get("status") == "ok":
         files = [Path(f) for f in buildings_summary["files"]]
@@ -326,7 +295,6 @@ def export(odm, products: dict, buildings_summary: dict | None, cfg: dict, out_d
     (out_dir / "scene.json").write_text(json.dumps(georef, indent=1), encoding="utf-8")
     result["georeference"] = georef
     if blender and ecfg["blender"]:
-        result["blender"] = blender_scene(blender, glb, out_dir, log_dir / "blender.log",
-                                          hide_buildings="scene_surface" in result)
+        result["blender"] = blender_scene(blender, glb, out_dir, log_dir / "blender.log")
     (out_dir / "terrain.ply").unlink(missing_ok=True)
     return result

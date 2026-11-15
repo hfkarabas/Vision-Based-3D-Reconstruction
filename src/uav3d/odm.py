@@ -19,9 +19,10 @@ PRODUCTS = {
     "dtm": "odm_dem/dtm.tif",
     "orthophoto": "odm_orthophoto/odm_orthophoto.tif",
     "reconstruction": "opensfm/reconstruction.json",
-    "textured_model": "odm_texturing/odm_textured_model_geo.obj",  # only when the 3D model is built
 }
-OPTIONAL_PRODUCTS = ("reconstruction", "textured_model")
+OPTIONAL_PRODUCTS = ("reconstruction",)
+OBLIQUE_WARNING = ("Oblique capture: most images look sideways rather than down. The pipeline targets nadir "
+                   "mapping flights; terrain and buildings from this image set are out of scope and unreliable.")
 
 
 class OdmError(RuntimeError):
@@ -136,8 +137,7 @@ def is_oblique(angles: dict, ocfg: dict) -> bool:
 
 
 KEEP_ALWAYS = ("opensfm/reconstruction.json", "opensfm/stats/", "odm_report/", "images/", "options.json",
-               "cameras.json", "odm_georeferencing/coords.txt", "odm_georeferencing/proj.txt",
-               "odm_texturing/odm_textured_model_geo")  # textured 3D model (oblique capture): obj, mtl, maps
+               "cameras.json", "odm_georeferencing/coords.txt", "odm_georeferencing/proj.txt")
 KEEP_SFM = ("opensfm/reconstruction.json", "opensfm/stats/")  # also kept inside submodels/ (split runs)
 SMALL_FILE = 1 << 20
 
