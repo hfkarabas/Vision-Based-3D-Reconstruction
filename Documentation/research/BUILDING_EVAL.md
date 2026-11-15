@@ -5,8 +5,7 @@ Etiketler: `labels/buildings/` (elle çizildi, 2026-11-14; kaba dikdörtgenler, 
 Tahmin olarak "ok" ve "low_confidence" durumundaki binalar kullanılır.
 
 Etiketli tek set Sheffield'dır (dik çekim, banliyö). Eğik çekimli setler kapsam dışıdır (2026-11-15); daha önce
-ayar setleri arasında bulunan iki eğik çekim seti ve onlara ait etiketler arşivlendi
-(`C:\projects\_archive\airzoo-2026-11-15`).
+ayar setleri arasında bulunan iki eğik çekim seti ve onlara ait etiketler projeden kaldırıldı.
 
 ## Başlangıç çizgisi (2026-11-14; OSM + nokta bulutu taban izi + düzlemsellik + arazi temizliği)
 
