@@ -54,8 +54,16 @@ def run_odm(rec: RunRecord, o: tools.Odm, images, summary, gcp, p, cfg, out: Pat
         s["gsd"] = gsd
         rec.save()
         res = plan.resolution_flags(gsd["gsd_m"] if gsd["metric"] else None, cfg)
-        s = rec.stage("odm:dense", resolution_flags=res)
-        s.update(odm.run(o, workdir, [*p["flags"], *extra, *res, "--rerun-from", "openmvs"], log, cpus=p.get("threads")))
+        # oblique capture: the 2.5D products cannot hold facades; build ODM's textured 3D model too and
+        # compute the orthophoto from it (--use-3dmesh)
+        view = odm.view_angles(project / odm.PRODUCTS["reconstruction"], cfg["oblique"]["off_nadir_deg"])
+        oblique = odm.is_oblique(view, cfg["oblique"])
+        rec.set("capture", {**view, "oblique": oblique})
+        flags = p["flags"]
+        if oblique:
+            flags = [f for f in flags if f != "--skip-3dmodel"] + list(cfg["oblique"]["odm_flags"])
+        s = rec.stage("odm:dense", resolution_flags=res, oblique=oblique)
+        s.update(odm.run(o, workdir, [*flags, *extra, *res, "--rerun-from", "openmvs"], log, cpus=p.get("threads")))
     else:
         # Split-merge runs all stages per submodel; ODM caps resolutions by its own GSD estimate.
         s = rec.stage("odm:split")

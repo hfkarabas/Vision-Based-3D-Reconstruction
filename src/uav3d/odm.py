@@ -19,7 +19,9 @@ PRODUCTS = {
     "dtm": "odm_dem/dtm.tif",
     "orthophoto": "odm_orthophoto/odm_orthophoto.tif",
     "reconstruction": "opensfm/reconstruction.json",
+    "textured_model": "odm_texturing/odm_textured_model_geo.obj",  # only when the 3D model is built
 }
+OPTIONAL_PRODUCTS = ("reconstruction", "textured_model")
 
 
 class OdmError(RuntimeError):
@@ -113,8 +115,29 @@ def gsd_from_reconstruction(path: Path) -> dict:
             "points": len(points), "reconstructions": len(recs)}
 
 
+def view_angles(path: Path, oblique_deg: float = 20.0) -> dict:
+    """Off-nadir angle of every shot's optical axis in the largest OpenSfM reconstruction (topocentric,
+    z up; the axis in world coordinates is R^T [0, 0, 1]). Nadir mapping flights stay within a few
+    degrees; oblique capture (facades, towers) does not. Works for any camera, with or without
+    gimbal metadata."""
+    recs = json.loads(path.read_text(encoding="utf-8"))
+    rec = max(recs, key=lambda r: len(r.get("shots", {})))
+    off = []
+    for shot in rec["shots"].values():
+        axis = _rotation(shot["rotation"]).T @ np.array([0.0, 0.0, 1.0])
+        off.append(float(np.degrees(np.arccos(np.clip(-axis[2], -1.0, 1.0)))))
+    off = np.array(off)
+    return {"shots": len(off), "median_off_nadir_deg": round(float(np.median(off)), 1) if len(off) else None,
+            "share_oblique": round(float((off > oblique_deg).mean()), 3) if len(off) else 0.0}
+
+
+def is_oblique(angles: dict, ocfg: dict) -> bool:
+    return angles.get("share_oblique", 0.0) >= ocfg["min_share"]
+
+
 KEEP_ALWAYS = ("opensfm/reconstruction.json", "opensfm/stats/", "odm_report/", "images/", "options.json",
-               "cameras.json", "odm_georeferencing/coords.txt", "odm_georeferencing/proj.txt")
+               "cameras.json", "odm_georeferencing/coords.txt", "odm_georeferencing/proj.txt",
+               "odm_texturing/odm_textured_model_geo")  # textured 3D model (oblique capture): obj, mtl, maps
 KEEP_SFM = ("opensfm/reconstruction.json", "opensfm/stats/")  # also kept inside submodels/ (split runs)
 SMALL_FILE = 1 << 20
 
@@ -143,7 +166,7 @@ def prune(project: Path) -> dict:
             path.unlink()
         elif path.is_dir() and not any(path.iterdir()):
             path.rmdir()
-    missing = [k for k, v in products(project).items() if v is None and k != "reconstruction"]
+    missing = [k for k, v in products(project).items() if v is None and k not in OPTIONAL_PRODUCTS]
     return {"freed_gb": round(freed / 2**30, 2), "missing_products_after_prune": missing}
 
 

@@ -11,6 +11,11 @@
     "dem_gsd_factor": 2.0
   },
   "odm_flags": ["--dsm", "--dtm", "--skip-3dmodel", "--auto-boundary"],
+  "oblique": {
+    "off_nadir_deg": 20,
+    "min_share": 0.3,
+    "odm_flags": ["--use-3dmesh"]
+  },
   "terrain": {
     "elm": {"cell": 10.0, "threshold": 1.0},
     "outlier": {"method": "statistical", "mean_k": 8, "multiplier": 2.0},
