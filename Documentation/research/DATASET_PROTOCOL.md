@@ -22,11 +22,8 @@ Daha önce Codex oturumlarında üzerinde çalışılmış her yerel dataset kir
 | Kimlik | Kaynak | Ülke | Platform / kamera | Görüntü | Referans | Lisans | Rol |
 |---|---|---|---|---|---|---|---|
 | `sheffield_cross` | [pierotofy/drone_dataset_sheffield_cross](https://github.com/pierotofy/drone_dataset_sheffield_cross) | ABD (Florida; adı yanıltıcı) | DJI Phantom 3 (FC300S), 4000×3000 | 172 | GCP dosyası | Public domain (Unlicense) | Ayar |
-| `jb3d` (kısmi) | [JB3D](https://github.com/JB3D-Dataset/Multi-View-Stereo) | Belirtilmemiş | İHA video 3840×2160 @30 fps | Kısmi indirme | LiDAR (5 bulut), ECEF/ENU | CC BY 4.0 | Hold-out adayı (bkz. 3) |
-| `tnt_caterpillar` | Tanks and Temples | — | El kamerası video | — | Lazer (yerelde yok) | T&T şartları | Kapsam dışı (İHA değil) |
-| `temple`, `sceaux`, `middlebury` | Middlebury / OpenMVG örnekleri | — | Masaüstü nesne | 6–30 | — | — | Kapsam dışı (eski pipeline birim testi) |
 
-JB3D yerelde Codex tarafından kısmen indirildi; yalnızca Day 1 LiDAR ve tek bir uçuş arşivi var. Kamera konum düzeltmesinin uygulanıp uygulanmadığı doğrulanmadan kullanılmayacak.
+Yerel konum: `datasets/sheffield/full`. ODM örnek setleri `datasets/odm/`, UseGeo `datasets/usegeo/` altındadır.
 
 ### 2.2 İndirilecek açık setler
 

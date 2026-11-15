@@ -1,6 +1,6 @@
 # Mimari (plan adımı 3)
 
-Tarih: 2026-11-13. Bu belge Codex dönemindeki `PROPOSED_ARCHITECTURE.md` belgesinin yerine geçer.
+Tarih: 2026-11-13 (2026-11-15'te güncellendi: eski proje depodan kaldırıldı; masaüstü arayüzü eklendi).
 Gerekçe: literatür taraması (Claude Doc) ve `research/DATASET_PROTOCOL.md`.
 
 ## 1. İlke
@@ -11,7 +11,8 @@ Her aşamayı kanıtlanmış bir açık kaynak araç yapar. Bizim kodumuz yalnı
 3. Kalite geri besleme zamanlayıcısı: araştırmanın özgün katkısı, plan adımı 5.
 4. Değerlendirme: bağımsız referansa göre doğruluk ve tamamlanmışlık ölçümü.
 
-Yeni paketin adı `src/uav3d`. Eski `src/vision3d` legacy olarak kalır ve yeni pakete import edilmez.
+Paketin adı `src/uav3d`. Masaüstü arayüzü `src/uav3d/app.py` (`run_app.bat`) aynı komutu ayrı bir işlem olarak
+başlatır ve ilerlemeyi `run.json`'dan okur; işleme mantığı yalnız komut satırı akışındadır.
 
 ## 2. Araç zinciri
 
