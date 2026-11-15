@@ -21,6 +21,9 @@ def main() -> int:
     ap.add_argument("out", type=Path)
     ap.add_argument("--threads", type=int, default=10)
     a = ap.parse_args()
+    # ODM runs from its install dir: every path handed to it must be absolute (a relative --geo is silently
+    # ignored and the SfM ends up unreferenced)
+    a.input, a.out = a.input.resolve(), a.out.resolve()
     images_dir = a.input / "images"
     images = sorted(p for p in images_dir.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".tif", ".tiff", ".png"))
     geo = images_dir / "geo.txt"
@@ -33,6 +36,8 @@ def main() -> int:
         flags += ["--geo", str(geo)]
     rec = {"input": str(a.input), "images": len(images), "flags": flags}
     rec["odm"] = odm.run(o, workdir, flags, a.out / "logs" / "odm.log", cpus=a.threads)
+    if not (project / "odm_georeferencing" / "coords.txt").is_file():
+        raise SystemExit("SfM is not georeferenced (no odm_georeferencing/coords.txt); check --geo / EXIF GPS")
     rec["gsd"] = odm.gsd_from_reconstruction(project / "opensfm" / "reconstruction.json")
     (a.out / "sfm.json").write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
     print(json.dumps({k: rec[k] for k in ("images", "gsd")}), json.dumps({k: rec["odm"].get(k) for k in ("wall_s", "peak_rss_gb")}))

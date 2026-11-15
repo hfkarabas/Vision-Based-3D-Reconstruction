@@ -36,6 +36,8 @@ def main() -> int:
     a = ap.parse_args()
 
     project, out = a.project.resolve(), a.out.resolve()
+    if not (project / "odm_georeferencing" / "coords.txt").is_file():
+        raise SystemExit(f"{project} is not georeferenced (no odm_georeferencing/coords.txt)")
     out.mkdir(parents=True, exist_ok=True)
     log = out / "fine_pass.log"
     o = tools.odm()
