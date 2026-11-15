@@ -22,10 +22,12 @@ try {
            Where-Object { $_.CommandLine -like '*run_holdout_adaptive.ps1*' }) {
         Start-Sleep 60
     }
-    Say "UseGeo-1 subset validation (budget 0.5) ..."
-    & $Python bench\validate_subsets.py outputs\tune\usegeo_1 datasets\usegeo\dataset-1\LiDAR_dataset1.las `
-        --budget 0.5 --model configs\gain_model.json --threads $Threads
-    Say "validation exit=$LASTEXITCODE"
+    if (-not (Select-String -Quiet -Path outputs\tune\usegeo_1\validate\adaptive_0.5\validate.json -Pattern '"merged_measured"' -ErrorAction SilentlyContinue)) {
+        Say "UseGeo-1 subset validation (budget 0.5) ..."
+        & $Python bench\validate_subsets.py outputs\tune\usegeo_1 datasets\usegeo\dataset-1\LiDAR_dataset1.las `
+            --budget 0.5 --model configs\gain_model.json --threads $Threads
+        Say "validation exit=$LASTEXITCODE"
+    } else { Say "UseGeo-1 validation already done" }
     foreach ($n in 2, 3) {
         $out = "outputs\holdout\usegeo_${n}_unsplit"
         if (Test-Path "$out\tile_gains.json") {
