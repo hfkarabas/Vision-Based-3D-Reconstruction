@@ -66,6 +66,11 @@ Fizibilite (2026-11-14, ODM 3.6.2'nin OpenMVS/OpenSfM ikilileri, Sheffield sahne
   bias −0,0012; tahmin–gerçek katkı Spearman 0,68. Seçim yalnız tahmini katkı > 0 olan karolar (oracle gibi).
 - Replay F20 (β 25/50/75): adaptive 62,6/63,4/64,6; static 59,2/58,4/60,6; random ort. 60,5/60,4/61,9;
   oracle 63,1/64,6/66,1; kaba 61,6; tam ince 63,7.
+- Gerçek alt sahne koşusu (β=0,5, `outputs/tune/usegeo_1/validate/adaptive_0.5`): F10/F20/F50 41,1/64,2/86,6;
+  replay 40,0/63,4/88,6; kaba 38,0/61,6/87,5. P20 79,0 (replay 75,0), R20 54,1 (55,0). 116 görüntü (tahmin 111),
+  derinlik haritası 2705 s (tahmin 2377, +%14), toplam 3062 s, tepe 10,4 GB.
+  İlk skor (F20 65,0) geçersizdi: `refine.merge`'deki PDAL `filters.crop` (multipolygon, outside=true) kaba noktaları
+  hiç atmıyordu; düzeltme `refine.drop_tiles` (bd6d045). Hatalı bulut `merged_overlap_bug.laz` olarak saklandı.
 
 ## 3. Döngü
 
