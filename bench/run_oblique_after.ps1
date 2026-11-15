@@ -22,6 +22,18 @@ try {
            Where-Object { $_.CommandLine -like '*run_holdout_adaptive.ps1*' -or $_.CommandLine -like '*run_after_holdout.ps1*' }) {
         Start-Sleep 60
     }
+    # UseGeo-2 per-tile scores failed in the chain (no ODM overlap.tif after an SfM-only run; fixed in
+    # bench/tile_gains.py): score and replay it here, before the AirZoo runs
+    $u2 = "outputs\holdout\usegeo_2_unsplit"
+    if (-not (Test-Path "$u2\tile_gains.json")) {
+        Say "UseGeo-2 per-tile scores ..."
+        & $Python bench\tile_gains.py $u2 "datasets\usegeo\dataset-2\LiDAR_dataset2.las" *> "$u2\tile_gains.log"
+        Say "tile_gains exit=$LASTEXITCODE"
+    }
+    if ((Test-Path "$u2\tile_gains.json") -and -not (Test-Path "$u2\adaptive_replay.json")) {
+        Say "UseGeo-2 replay with the frozen model ..."
+        & $Python bench\adaptive_replay.py $u2 --model configs\gain_model.json
+    }
     foreach ($s in @(@("urban", "Scene1"), @("rural", "Scene2"))) {
         $out = "outputs\tune\airzoo_$($s[0])_oblique"
         Say "AirZoo $($s[0]) (oblique mode) -> $out"

@@ -67,7 +67,13 @@ def main() -> int:
         bias_path.write_text(json.dumps(bias_rec), encoding="utf-8")
     bias = bias_rec["offset_m"]
 
-    sig = signals.tile_signals(dsm_path, project / "opensfm" / "stats" / "overlap.tif", coarse, bounds[:2], a.size, shape)
+    overlap = project / "opensfm" / "stats" / "overlap.tif"
+    if not overlap.is_file():
+        # SfM-only ODM runs (hold-outs) stop before ODM's report stage: same diagram from the coarse cloud
+        overlap = a.run / "signals" / "overlap.tif"
+        if not overlap.is_file():
+            signals.overlap_raster(o, coarse, overlap, a.run / "signals" / "overlap.log")
+    sig = signals.tile_signals(dsm_path, overlap, coarse, bounds[:2], a.size, shape)
     ev = tiles.evaluate_clouds({"coarse": coarse, "fine": fine}, a.ref, a.size, bias, bounds)
     rows = []
     for s, c, f in zip(sig, ev["clouds"]["coarse"], ev["clouds"]["fine"]):

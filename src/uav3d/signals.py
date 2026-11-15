@@ -68,6 +68,32 @@ def dsm(odm, laz_path, out_tif, cell: float, log) -> dict:
     return {"dsm": str(out_tif), "cell_m": cell, "wall_s": info["wall_s"]}
 
 
+def overlap_raster(odm, laz_path, out_tif, log, target_px: int = 1400) -> dict:
+    """ODM's overlap diagram (stages/odm_report.py) from a dense cloud with a per-point view count
+    ("views", OpenMVS): max views per cell, cell = longest side / 1400, radius = cell * sqrt(2). Used when a
+    run stopped before ODM's report stage (e.g. --end-with opensfm) and opensfm/stats/overlap.tif is absent."""
+    import json
+    import math
+    from pathlib import Path
+
+    from uav3d.record import run_measured
+
+    h = laspy.open(laz_path).header
+    if "views" not in list(h.point_format.extra_dimension_names):
+        raise ValueError(f"{laz_path} has no 'views' dimension")
+    res = max(h.maxs[0] - h.mins[0], h.maxs[1] - h.mins[1]) / target_px
+    out_tif = Path(out_tif)
+    pipe = [{"type": "readers.las", "filename": str(laz_path)},
+            {"type": "writers.gdal", "filename": str(out_tif), "resolution": res, "radius": res * math.sqrt(2),
+             "data_type": "uint8_t", "dimension": "views", "output_type": "max"}]
+    path = out_tif.with_suffix(".pipeline.json")
+    path.write_text(json.dumps(pipe, indent=1), encoding="utf-8")
+    info = run_measured([str(odm.exe("pdal")), "pipeline", str(path)], Path(log), env=odm.env())
+    if info["returncode"] != 0 or not out_tif.is_file():
+        raise RuntimeError(f"overlap raster failed (exit {info['returncode']}); see {log}")
+    return {"overlap": str(out_tif), "cell_m": res, "wall_s": info["wall_s"]}
+
+
 def tile_signals(dsm_path, overlap_path, laz_path, origin, size: float, shape) -> list[dict]:
     counts = point_counts(laz_path, origin, size, shape)
     dens = counts / size ** 2
