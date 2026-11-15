@@ -17,13 +17,8 @@ Add-Type -Namespace Win32 -Name Power3 -MemberDefinition @'
 [void][Win32.Power3]::SetThreadExecutionState([uint32]"0x80000001")
 function Say($m) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $m" }
 try {
-    Say "waiting for the hold-out chain and its replays ..."
-    while (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
-           Where-Object { $_.CommandLine -like '*run_holdout_adaptive.ps1*' -or $_.CommandLine -like '*run_after_holdout.ps1*' }) {
-        Start-Sleep 60
-    }
     # UseGeo-2 per-tile scores failed in the chain (no ODM overlap.tif after an SfM-only run; fixed in
-    # bench/tile_gains.py): score and replay it here, before the AirZoo runs
+    # bench/tile_gains.py): score and replay it here. Light on RAM, so it runs alongside the chain's last steps.
     $u2 = "outputs\holdout\usegeo_2_unsplit"
     if (-not (Test-Path "$u2\tile_gains.json")) {
         Say "UseGeo-2 per-tile scores ..."
@@ -33,6 +28,11 @@ try {
     if ((Test-Path "$u2\tile_gains.json") -and -not (Test-Path "$u2\adaptive_replay.json")) {
         Say "UseGeo-2 replay with the frozen model ..."
         & $Python bench\adaptive_replay.py $u2 --model configs\gain_model.json
+    }
+    Say "waiting for the hold-out chain and its replays (RAM) ..."
+    while (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+           Where-Object { $_.CommandLine -like '*run_holdout_adaptive.ps1*' -or $_.CommandLine -like '*run_after_holdout.ps1*' }) {
+        Start-Sleep 60
     }
     foreach ($s in @(@("urban", "Scene1"), @("rural", "Scene2"))) {
         $out = "outputs\tune\airzoo_$($s[0])_oblique"
