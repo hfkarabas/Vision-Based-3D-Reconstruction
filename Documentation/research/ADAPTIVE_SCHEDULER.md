@@ -131,6 +131,16 @@ U-mid ve split-merge karşılaştırması yapılmadı (raporda sınırlılık).
 - Ek yük: c≈1'de tam ince, hold-out şeritlerde Adaptive'den 2,0 / 1,9 puan iyi; ayarda Adaptive 0,9 puan önde.
   Seçici inceltme yalnız c<1'de anlamlı. Tepe bellek avantajı yok (alt sahneler de 10–11 GB).
 
+## 4b. Keşifsel analiz ve H4 (2026-11-15, sonuçlar görüldükten sonra)
+
+- c=0,5'te Adaptive − Static F20: U2 +3,9 [2,0; 6,3], U3 +1,2 [0,2; 2,4]; Adaptive − Random U3'te anlamsız.
+- Sinyal yönü üç şeritte aynı (örtüşme, yoğunluk, pürüzlülük, rölyef +; boşluk −).
+- Zararlı karo oranı U1/U2/U3 %29/%7/%10; eşit maliyette seçici yalnız U1'de üstün. Dondurulmuş modelin
+  "kazanç yok" payı %12/%8/%0,3 → rejimi kestiremiyor.
+- **H4 (önceden ilan, raporda sabit):** zararlı karo oranı referanssız kestirilebilir; kestirim > %20 ise seçici
+  inceltme eşit maliyetli tekdüze ince geçişi geçer, < %20 ise geçmez. Çürütme: görülmemiş, LiDAR'lı ≥2 yeni blokta
+  kural "her zaman tekdüze"den kötüyse ya da kestirim–gerçek sıra ilişkisi pozitif değilse reddedilir.
+
 ## 5. Açık riskler
 
 - Karo sınırında dikiş: komşu karoları gören görüntüler farklı düzeyde → füzyonu ROI ile karo + kenar payına sınırla.
