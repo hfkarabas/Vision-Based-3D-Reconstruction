@@ -84,7 +84,6 @@ Coefficients live in `configs/defaults.json`; nothing in the pipeline is specifi
 | `configs/` | Defaults, frozen gain model of the scheduler, dataset registry |
 | `bench/` | Experiment scripts: hold-out runs, per-tile scores, replay, hypothesis analysis |
 | `labels/buildings/` | Hand-drawn building labels (Sheffield) |
-| `paper/` | Report and conference paper (LaTeX) |
 | `Documentation/` | Architecture and research notes |
 | `datasets/`, `outputs/` | Local data and results (not in Git) |
 
