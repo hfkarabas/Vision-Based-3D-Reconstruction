@@ -198,7 +198,12 @@ STYLE = {"adaptive": dict(ls="-", marker="o"), "static": dict(ls="--", marker="s
          "random": dict(ls=":", marker="^"), "oracle": dict(ls="-.", marker="D")}
 
 
-def figure(results, out: Path, tau):
+TEXT = {"tr": {"coarse": "kaba", "fine": "tam ince", "x": r"Görüntü bütçesi $\beta$ [%]", "tune": " (ayar)"},
+        "en": {"coarse": "coarse", "fine": "full fine", "x": r"Image budget $\beta$ [%]", "tune": " (tuning)"}}
+
+
+def figure(results, out: Path, tau, lang: str = "tr"):
+    t = TEXT[lang]
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -214,10 +219,10 @@ def figure(results, out: Path, tau):
         c, f = 100 * r["coarse"][tau]["f"], 100 * r["fine_all"][tau]["f"]
         ax.axhline(c, color="#8a8984", lw=0.8)
         ax.axhline(f, color="#8a8984", lw=0.8, ls="--")
-        ax.text(101, c, "kaba", va="center", fontsize=6.5, color="#52514e")
-        ax.text(101, f, "tam ince", va="center", fontsize=6.5, color="#52514e")
-        ax.set_title(r["label"], fontsize=8)
-        ax.set_xlabel(r"Görüntü bütçesi $\beta$ [%]")
+        ax.text(101, c, t["coarse"], va="center", fontsize=6.5, color="#52514e")
+        ax.text(101, f, t["fine"], va="center", fontsize=6.5, color="#52514e")
+        ax.set_title(r["label"].replace(" (ayar)", t["tune"]), fontsize=8)
+        ax.set_xlabel(t["x"])
         ax.set_xlim(0, 100)
         ax.grid(axis="y", color="#e3e2de", lw=0.5)
         for s in ("top", "right"):
@@ -242,6 +247,7 @@ def main() -> int:
     ap.add_argument("--reps", type=int, default=2000)
     ap.add_argument("--out", type=Path, default=Path("outputs/holdout/hypothesis.json"))
     ap.add_argument("--figure", type=Path)
+    ap.add_argument("--lang", choices=("tr", "en"), default="tr", help="figure labels")
     a = ap.parse_args()
     model = schedule.GainModel.from_dict(json.loads(a.model.read_text(encoding="utf-8")))
     results = []
@@ -258,7 +264,7 @@ def main() -> int:
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(out, indent=1), encoding="utf-8")
     if a.figure:
-        figure(results, a.figure, a.tau)
+        figure(results, a.figure, a.tau, a.lang)
     for r in results:
         print(f"== {r['label']}  tiles {r['tiles']}  images {r['total_images']}  "
               f"coarse F{a.tau} {r['coarse'][a.tau]['f']:.4f}  fine-all {r['fine_all'][a.tau]['f']:.4f}")
