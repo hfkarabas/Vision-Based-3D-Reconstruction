@@ -102,8 +102,22 @@ def _semantic_types(geom: dict) -> list[str | None]:
     return [sem["surfaces"][i]["type"] if i is not None else None for i in values]
 
 
-def building_meshes(jsonl_files: list[Path], per_building: dict, origin: np.ndarray) -> dict[str, trimesh.Trimesh]:
-    """One mesh per exported building (LoD2.2, else LoD1.2), in coordinates relative to origin."""
+def pick_lod(per: dict, mode: str = "1.2", lod22_max_rmse_m: float | None = None) -> list[str]:
+    """LoD preference for one building in the scene (the CityJSON keeps every LoD Roofer made).
+    "1.2": the block (footprint x height) for every building; "2.2": roof planes for every building;
+    "auto": roof planes only when they fit the points well (Roofer RMSE <= lod22_max_rmse_m)."""
+    if mode == "2.2":
+        return ["2.2", "1.2"]
+    if mode == "auto":
+        rmse = per.get("rmse_lod22_m")
+        if rmse is not None and lod22_max_rmse_m is not None and rmse <= lod22_max_rmse_m:
+            return ["2.2", "1.2"]
+    return ["1.2", "2.2"]
+
+
+def building_meshes(jsonl_files: list[Path], per_building: dict, origin: np.ndarray, lod_mode: str = "1.2",
+                    lod22_max_rmse_m: float | None = None) -> dict[str, trimesh.Trimesh]:
+    """One mesh per exported building (pick_lod), in coordinates relative to origin."""
     parts: dict[str, list[trimesh.Trimesh]] = {}
     for path in jsonl_files:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -119,7 +133,8 @@ def building_meshes(jsonl_files: list[Path], per_building: dict, origin: np.ndar
                 if bid is None or per_building.get(bid, {}).get("status") not in EXPORTED_STATUSES:
                     continue
                 geoms = {g["lod"]: g for g in co.get("geometry", [])}
-                geom = geoms.get("2.2") or geoms.get("1.2")
+                geom = next((geoms[l] for l in pick_lod(per_building[bid], lod_mode, lod22_max_rmse_m)
+                             if l in geoms), None)
                 if not geom:
                     continue
                 surfaces = geom["boundaries"][0] if geom["type"] == "Solid" else geom["boundaries"]
@@ -250,7 +265,10 @@ def export(odm, products: dict, buildings_summary: dict | None, cfg: dict, out_d
     meshes = {}
     if buildings_summary and buildings_summary.get("status") == "ok":
         files = [Path(f) for f in buildings_summary["files"]]
-        meshes = building_meshes(files, buildings_summary["per_building"], origin)
+        mode, thr = ecfg.get("building_lod", "1.2"), ecfg.get("lod22_max_rmse_m")
+        meshes = building_meshes(files, buildings_summary["per_building"], origin, mode, thr)
+        result["lod_by_building"] = {bid: pick_lod(per, mode, thr)[0]
+                                     for bid, per in buildings_summary["per_building"].items() if bid in meshes}
         result["cityjson"] = str(out_dir / "buildings.city.json")
         result["cityjson_buildings"] = merge_cityjson(files, out_dir / "buildings.city.json")
     result["buildings_in_scene"] = len(meshes)

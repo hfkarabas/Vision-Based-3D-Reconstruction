@@ -139,3 +139,56 @@ def test_gcp_autodetect_requires_odm_header(tmp_path):
     assert ingest.find_gcp(tmp_path, [img]) is None
     (tmp_path / "gcp_list.txt").write_text("+proj=utm +zone=17 +datum=WGS84\n1 2 3 4 5 a.jpg\n")
     assert ingest.find_gcp(tmp_path, [img]) == tmp_path / "gcp_list.txt"
+
+
+def test_orthogonalise_squares_a_ragged_rotated_l_shape():
+    import numpy as np
+    from shapely.affinity import rotate
+    from shapely.geometry import Polygon
+
+    rng = np.random.default_rng(0)
+    l_shape = Polygon([(0, 0), (20, 0), (20, 8), (8, 8), (8, 16), (0, 16)])
+    # ragged outline: densify and jitter the vertices by up to 0.4 m, then rotate 30 deg
+    ring = np.asarray(l_shape.exterior.segmentize(1.0).coords)[:-1]
+    ragged = rotate(Polygon(ring + rng.uniform(-0.4, 0.4, ring.shape)), 30, origin=(0, 0))
+    out = footprints.orthogonalise(ragged, 1.5, 0.75)
+    edges = np.diff(np.asarray(out.exterior.coords), axis=0)
+    ang = np.degrees(np.arctan2(edges[:, 1], edges[:, 0])) % 90
+    assert np.all(np.minimum(np.abs(ang - 30), 90 - np.abs(ang - 30)) < 1.0)  # every edge along 30 / 120 deg
+    assert 4 <= len(edges) <= 8                                              # L-shape: 6 corners, not hundreds
+    target = rotate(l_shape, 30, origin=(0, 0))
+    assert out.intersection(target).area / out.union(target).area > 0.9
+
+
+def test_regularise_all_keeps_osm_outlines():
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+
+    tri = Polygon([(0, 0), (10, 0), (0, 10)])
+    fp = gpd.GeoDataFrame({"source": ["osm", "pointcloud"]}, geometry=[tri, tri], crs="EPSG:32633")
+    out = footprints.regularise_all(fp, {"step_m": 1.5, "min_iou": 0.75})
+    assert out.geometry[0].equals(tri)
+
+
+def test_pick_lod_uses_lod22_only_for_well_fitted_roofs():
+    from uav3d import export
+
+    assert export.pick_lod({"rmse_lod22_m": 0.2}, "1.2", 0.3)[0] == "1.2"
+    assert export.pick_lod({"rmse_lod22_m": 0.6}, "2.2", 0.3)[0] == "2.2"
+    assert export.pick_lod({"rmse_lod22_m": 0.2}, "auto", 0.3)[0] == "2.2"
+    assert export.pick_lod({"rmse_lod22_m": 0.6}, "auto", 0.3)[0] == "1.2"
+    assert export.pick_lod({"rmse_lod22_m": None}, "auto", 0.3)[0] == "1.2"
+
+
+def test_roofer_run_clears_outputs_of_an_earlier_run(tmp_path, monkeypatch):
+    from uav3d import buildings, plan
+
+    out = tmp_path / "roofer"
+    out.mkdir()
+    (out / "1_2.city.jsonl").write_text("old", encoding="utf-8")
+    monkeypatch.setattr(buildings, "run_measured", lambda cmd, log, env=None: {"returncode": 0})
+    monkeypatch.setattr(buildings, "srs_of", lambda p: None)
+    monkeypatch.setattr(buildings, "summarise", lambda d, rcfg: sorted(p.name for p in d.glob("*.city.jsonl")))
+    r = buildings.run(tmp_path / "roofer.exe", tmp_path / "c.laz", tmp_path / "r.gpkg", out, None, plan.defaults(),
+                      tmp_path / "l.log")
+    assert r["summary"] == []

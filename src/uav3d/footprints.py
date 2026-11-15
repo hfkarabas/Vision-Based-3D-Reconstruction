@@ -117,6 +117,82 @@ def regularise(poly: Polygon, rectangularity: float) -> Polygon:
     return rect if rect.area > 0 and poly.area / rect.area >= rectangularity else poly
 
 
+def dominant_angle(poly: Polygon, tolerance: float = 0.0) -> float:
+    """Main orientation of an outline in radians, modulo 90 deg: length-weighted mean of the edge angles
+    on the 4-fold circle (an edge and its perpendicular vote for the same direction). The outline is first
+    simplified by `tolerance` so that short ragged edges (tracing noise) do not bias the vote."""
+    simple = poly.simplify(tolerance) if tolerance > 0 else poly
+    if simple.is_empty or simple.geom_type != "Polygon":
+        simple = poly
+    c = np.asarray(simple.exterior.coords)
+    d = np.diff(c, axis=0)
+    # squared length: long walls set the direction, short jagged edges hardly vote
+    z = (np.hypot(d[:, 0], d[:, 1]) ** 2 * np.exp(4j * np.arctan2(d[:, 1], d[:, 0]))).sum()
+    return float(np.angle(z) / 4)
+
+
+def orthogonalise(poly: Polygon, step_m: float, min_iou: float) -> Polygon:
+    """Right-angled outline along the dominant orientation (the usual footprint regularisation of building
+    extraction; cf. JOSM "orthogonalize"): rotate to the dominant direction, simplify by step/2, drop edges
+    shorter than step/2, label each edge horizontal or vertical, merge consecutive edges of the same label
+    into one line (length-weighted position), and take the corners as intersections of consecutive lines.
+    Falls back to the input when the result departs from it (IoU < min_iou) or degenerates."""
+    from shapely.affinity import rotate
+
+    if poly.is_empty or poly.area <= 0:
+        return poly
+    theta = dominant_angle(poly, step_m / 2)
+    c = poly.centroid
+    r = rotate(poly, -theta, origin=c, use_radians=True).simplify(step_m / 2)
+    if r.is_empty or r.geom_type != "Polygon":
+        return poly
+    pts = np.asarray(r.exterior.coords)[:-1]
+    edges = []  # [label, length-weighted position, length]
+    for a, b in zip(pts, np.roll(pts, -1, axis=0)):
+        d = b - a
+        length = float(np.hypot(*d))
+        if length == 0:
+            continue
+        horizontal = abs(d[0]) >= abs(d[1])
+        edges.append(["H" if horizontal else "V", (a[1] + b[1]) / 2 * length if horizontal
+                      else (a[0] + b[0]) / 2 * length, length])
+    long_edges = [e for e in edges if e[2] >= step_m / 2]
+    if len(long_edges) >= 4:
+        edges = long_edges
+    lines: list[list] = []
+    for e in edges:
+        if lines and lines[-1][0] == e[0]:
+            lines[-1][1] += e[1]
+            lines[-1][2] += e[2]
+        else:
+            lines.append(list(e))
+    if len(lines) > 1 and lines[0][0] == lines[-1][0]:
+        lines[0][1] += lines[-1][1]
+        lines[0][2] += lines[-1][2]
+        lines.pop()
+    if len(lines) < 4:
+        return poly
+    pos = [(lab, s / length) for lab, s, length in lines]
+    corners = []
+    for (l1, v1), (_, v2) in zip(pos, pos[1:] + pos[:1]):
+        corners.append((v2, v1) if l1 == "H" else (v1, v2))  # H: y = v1 meets V: x = v2, and vice versa
+    o = rotate(Polygon(corners), theta, origin=c, use_radians=True)
+    if not o.is_valid or o.area <= 0:
+        return poly
+    iou = o.intersection(poly).area / o.union(poly).area
+    return o if iou >= min_iou else poly
+
+
+def regularise_all(fp: gpd.GeoDataFrame, rcfg: dict) -> gpd.GeoDataFrame:
+    """Right-angled outlines for the traced roofprints (OSM outlines are kept as mapped)."""
+    traced = fp["source"] != "osm"
+    if not traced.any():
+        return fp
+    fp = fp.copy()
+    fp.loc[traced, "geometry"] = [orthogonalise(p, rcfg["step_m"], rcfg["min_iou"]) for p in fp.geometry[traced]]
+    return fp
+
+
 def from_pointcloud(laz_path, crs_wkt: str, gsd_m: float | None, pcfg: dict, building_class: int,
                     min_area: float) -> gpd.GeoDataFrame:
     """Roofprints from the building-classified points: occupancy raster -> morphological
@@ -421,6 +497,8 @@ def prepare(dsm_path, laz_path, gsd_m: float | None, cfg: dict, out_gpkg, score_
         summary["image_polygons_added"] = len(img)
         fp = pd.concat([fp, img], ignore_index=True)
     fp = gpd.GeoDataFrame(fp.reset_index(drop=True), geometry="geometry", crs=crs_wkt)
+    if len(fp) and fcfg.get("regularise", {}).get("enabled"):
+        fp = regularise_all(fp, fcfg["regularise"])
     if len(fp):
         fp = fp[covered(fp, dsm_path, fcfg["min_coverage"])]
     summary.update(kept=len(fp), kept_by_source=fp["source"].value_counts().to_dict() if len(fp) else {},

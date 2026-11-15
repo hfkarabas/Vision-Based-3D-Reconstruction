@@ -60,6 +60,10 @@ def run(roofer: Path, point_cloud: Path, roofprints: Path, out_dir: Path, dsm_pa
         n_threads: int | None = None) -> dict:
     rcfg = cfg["roofer"]
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Roofer names its output after the tile it computes; a rerun on changed roofprints can produce a
+    # different name, and summarise() reads every *.city.jsonl here, so outputs of an earlier run must go
+    for stale in out_dir.glob("*.city.jsonl"):
+        stale.unlink()
     cmd = [str(roofer), *rcfg["lods"], "--bld-class", str(rcfg["building_class"]),
            "--grnd-class", str(rcfg["ground_class"]), "--id-attribute", "fp_id",
            "-j", str(n_threads or os.cpu_count() or 1)]

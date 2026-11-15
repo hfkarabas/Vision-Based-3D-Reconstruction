@@ -43,6 +43,7 @@
     "min_side_gsd": 8,
     "min_area_m2": 10,
     "min_coverage": 0.9,
+    "regularise": {"enabled": true, "step_m": 1.5, "min_iou": 0.75},
     "pointcloud": {
       "enabled": true,
       "cell_gsd_factor": 10,
@@ -99,6 +100,8 @@
   "export": {
     "terrain_max_vertices": 200000,
     "texture_max_px": 4096,
+    "building_lod": "1.2",
+    "lod22_max_rmse_m": 0.3,
     "blender": true
   }
 }
