@@ -253,19 +253,46 @@ def densify_lowmem(odm, scene: Path, work: Path, level: int, max_resolution: int
     return rec
 
 
+def drop_tiles(laz_in, tiles: list[Tile], offset: tuple[float, float], out_laz: Path,
+               chunk: int = 5_000_000) -> dict:
+    """Copy a UTM point cloud without its points inside `tiles` (reconstruction frame; + offset = UTM).
+    Done here, on the tile grid itself, because PDAL's filters.crop with a multipolygon and outside=true keeps
+    every point (each point is outside some member polygon)."""
+    import laspy
+    import numpy as np
+
+    if not tiles:
+        raise ValueError("drop_tiles needs at least one tile")
+    size = tiles[0].x1 - tiles[0].x0
+    gx = tiles[0].x0 - tiles[0].ix * size + offset[0]
+    gy = tiles[0].y0 - tiles[0].iy * size + offset[1]
+    mask = np.zeros((max(t.iy for t in tiles) + 1, max(t.ix for t in tiles) + 1), bool)
+    for t in tiles:
+        mask[t.iy, t.ix] = True
+    kept = dropped = 0
+    with laspy.open(laz_in) as r, laspy.open(out_laz, mode="w", header=r.header) as w:
+        for pts in r.chunk_iterator(chunk):
+            ix = np.floor((np.asarray(pts.x) - gx) / size).astype(np.int64)
+            iy = np.floor((np.asarray(pts.y) - gy) / size).astype(np.int64)
+            ok = (ix >= 0) & (iy >= 0) & (ix < mask.shape[1]) & (iy < mask.shape[0])
+            inside = np.zeros(len(ix), bool)
+            inside[ok] = mask[iy[ok], ix[ok]]
+            w.write_points(pts[~inside])
+            kept += int((~inside).sum())
+            dropped += int(inside.sum())
+    return {"kept": kept, "dropped": dropped}
+
+
 def merge_pipeline(coarse_laz: str | None, refined: list[tuple[str, list[Tile]]], offset: tuple[float, float],
                    srs: str, out_laz: Path, refined_class: int = 1) -> list:
-    """PDAL pipeline: coarse points outside every refined group + each group's refined points (shifted to UTM,
-    cropped to the group), written as one LAZ in ODM's frame. OpenMVS PLYs carry no SRS, so ODM's is given.
-    Without a coarse cloud only the refined points are written."""
+    """PDAL pipeline: the coarse cloud (already without the refined tiles, see drop_tiles) + each group's
+    refined points (shifted to UTM, cropped to the group), written as one LAZ in ODM's frame. OpenMVS PLYs
+    carry no SRS, so ODM's is given. Without a coarse cloud only the refined points are written."""
     ox, oy = offset
-    area = multipolygon([t for _, g in refined for t in g], ox, oy)
     stages: list = []
     merged = []
     if coarse_laz:
-        stages += [{"type": "readers.las", "filename": coarse_laz, "override_srs": srs, "tag": "coarse"},
-                   {"type": "filters.crop", "inputs": ["coarse"], "polygon": area, "a_srs": srs, "outside": True,
-                    "tag": "keep"}]
+        stages += [{"type": "readers.las", "filename": coarse_laz, "override_srs": srs, "tag": "keep"}]
         merged.append("keep")
     for i, (ply, g) in enumerate(refined):
         stages += [{"type": "readers.ply", "filename": ply, "override_srs": srs, "tag": f"r{i}"},
@@ -285,10 +312,17 @@ def merge_pipeline(coarse_laz: str | None, refined: list[tuple[str, list[Tile]]]
 
 def merge(odm, coarse_laz: str | None, refined: list[tuple[str, list[Tile]]], project: Path, out_laz: Path,
           log: Path) -> dict:
-    pipeline = merge_pipeline(coarse_laz, refined, utm_offset(project), utm_srs(project), out_laz)
+    offset = utm_offset(project)
+    kept, dropped = None, None
+    if coarse_laz:
+        kept = Path(out_laz).with_name(Path(out_laz).stem + ".coarse_kept.laz")
+        dropped = drop_tiles(coarse_laz, [t for _, g in refined for t in g], offset, kept)
+    pipeline = merge_pipeline(str(kept) if kept else None, refined, offset, utm_srs(project), out_laz)
     path = out_laz.with_suffix(".pipeline.json")
     path.write_text(json.dumps(pipeline, indent=1), encoding="utf-8")
     info = run_measured([str(odm.exe("pdal")), "pipeline", str(path)], log, env=odm.env())
     if info["returncode"] != 0 or not out_laz.is_file():
         raise RefineError(f"PDAL merge failed (exit {info['returncode']}); see {log}")
-    return {"laz": str(out_laz), "wall_s": info["wall_s"], "peak_rss_gb": info["peak_rss_gb"]}
+    if kept:
+        kept.unlink()
+    return {"laz": str(out_laz), "wall_s": info["wall_s"], "peak_rss_gb": info["peak_rss_gb"], "coarse": dropped}

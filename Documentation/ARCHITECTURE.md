@@ -54,7 +54,15 @@ uav3d run <görüntü klasörü> --out <çıktı> [--budget-ram-gb N] [--budget-
 6. **export:** arazi mesh'i ve binalar glTF ile CityJSON olarak yazılır. Blender sahnesi isteğe bağlı.
 7. **record:** `run.json` dosyasına araç sürümleri, türetilen tüm ayarlar, aşama süreleri, tepe RAM ve hata nedenleri yazılır.
 
-Plan adımı 5'teki zamanlayıcı 4. aşamanın yerine geçen bir döngü olacak. Döngü karolar üzerinde çalışır ve aynı kayıt biçimini kullanır.
+**adaptive (isteğe bağlı, `--refine-budget β`, 2026-11-15):** 4. aşamadan sonra çalışır (`uav3d/adaptive.py`).
+ODM'nin yoğun bulutu kaba geçiştir; düzeyi ODM'nin derinlik haritası başlığından okunur. Blok 25 m'lik karolara
+bölünür. Karo başına referanssız sinyaller hesaplanır (`signals.py`), dondurulmuş kazanç modeliyle
+(`configs/gain_model.json`) tahmin yapılır. Tahmini kazancı pozitif olan karolar, yeni görüntü başına kazanca göre
+β × görüntü bütçesi içinde seçilir (`schedule.py`). Bitişik seçili karolar kendi görüntü alt kümeleriyle bir düzey
+ince yoğunlaştırılır (`refine.py`, ODM'nin düşük bellekli OpenMVS yolu) ve ODM'nin OpenPointClass modeliyle
+sınıflandırılır. Ardından karolardaki kaba noktaların yerine konur. Sonraki aşamalar birleştirilmiş bulutla değişmeden
+çalışır. Split-merge koşusunda (alt modellerin SfM'leri ayrı) ya da ODM ara dosyaları silinmişse aşama gerekçesiyle
+atlanır ve koşu kaba bulutla devam eder.
 
 ## 5. Ayar türetme kuralları (dataset bağımsız)
 
@@ -78,6 +86,8 @@ src/uav3d/
   ingest.py       # EXIF, GPS, kamera
   plan.py         # ayar türetme (bölüm 5)
   odm.py          # ODM çağrısı, GSD hesabı
+  adaptive.py     # bölgesel yeniden yoğunlaştırma aşaması (signals, schedule, refine)
+  terrain.py      # arazi temizliği, DTM/DSM
   buildings.py    # taban izi + Roofer
   export.py       # glTF / CityJSON
   record.py       # run.json, süre ve RAM ölçümü

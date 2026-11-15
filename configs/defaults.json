@@ -90,6 +90,12 @@
     "low_confidence_rmse_m": 1.0,
     "relabel_min_above_m": 1.0
   },
+  "adaptive": {
+    "tile_m": 25.0,
+    "k": 50,
+    "sub_scene_area_px": 400000,
+    "gain_model": "gain_model.json"
+  },
   "export": {
     "terrain_max_vertices": 200000,
     "texture_max_px": 4096,

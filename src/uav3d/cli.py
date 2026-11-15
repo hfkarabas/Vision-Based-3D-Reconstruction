@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from uav3d import __version__, buildings, detect, export, footprints, ingest, odm, plan, terrain, tools
+from uav3d import __version__, adaptive, buildings, detect, export, footprints, ingest, odm, plan, terrain, tools
 from uav3d.record import RunRecord
 
 TERRAIN = ("point_cloud", "dsm", "dtm", "orthophoto")
@@ -66,6 +66,28 @@ def run_odm(rec: RunRecord, o: tools.Odm, images, summary, gcp, p, cfg, out: Pat
     if missing:
         raise odm.OdmError(f"ODM finished but did not produce: {', '.join(missing)}")
     return prods, gsd
+
+
+def run_adaptive(rec: RunRecord, prods: dict, gsd: dict | None, cfg: dict, out: Path, budget: float,
+                 n_threads: int) -> dict:
+    """Regional refinement of ODM's cloud (uav3d.adaptive); returns the products with the merged cloud,
+    or the products unchanged when refinement is impossible (reason recorded) or selects nothing."""
+    s = rec.stage("adaptive")
+    project = out / "odm" / odm.PROJECT
+    if rec.data.get("plan", {}).get("split") is not None:
+        s["skipped"] = "split-merge run: submodels have separate SfM solutions, regional refinement needs one"
+        rec.save()
+        return prods
+    try:
+        laz = adaptive.run(tools.odm(), project, prods["point_cloud"],
+                           gsd["gsd_m"] if gsd and gsd.get("metric") else None, budget, cfg, out / "adaptive",
+                           out / "logs" / "adaptive.log", n_threads, s, rec.save)
+    except adaptive.Skip as why:
+        s["skipped"] = str(why)
+        rec.save()
+        return prods
+    rec.save()
+    return {**prods, "coarse_point_cloud": prods["point_cloud"], "point_cloud": laz} if laz else prods
 
 
 def run_detect(rec: RunRecord, prods: dict, cfg: dict, out: Path) -> str | None:
@@ -148,6 +170,9 @@ def cmd_run(args) -> int:
             stage = "odm"
             prods, gsd = run_odm(rec, o, images, summary, gcp, p, cfg, out, geo)
         rec.set("products", prods)  # always ODM's own products, so --reuse-odm finds them
+        if args.refine_budget is not None:
+            stage = "adaptive"
+            prods = run_adaptive(rec, prods, gsd, cfg, out, args.refine_budget, n_threads)
         score = None
         if not args.skip_buildings or not args.skip_terrain:
             stage = "detect"
@@ -177,6 +202,8 @@ def cmd_run(args) -> int:
             stage = "prune"
             s = rec.stage(stage)
             s.update(odm.prune(out / "odm" / odm.PROJECT))
+            if (out / "adaptive").is_dir():
+                s["adaptive"] = adaptive.prune(out / "adaptive")
         rec.set("disk_gb", round(sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 2**30, 2))
         rec.finish("ok")
         print(f"ok: {out / 'run.json'}")
@@ -210,6 +237,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--keep-odm-intermediates", action="store_true",
                    help="keep ODM's depth maps/undistorted images (needed only to re-densify regions)")
     r.add_argument("--skip-export", action="store_true", help="no glb/CityJSON/Blender scene")
+    r.add_argument("--refine-budget", type=float, default=None, metavar="BETA",
+                   help="regional refinement: densify one level finer the tiles with positive predicted gain, "
+                        "within BETA x the block's images (0-1; e.g. 0.5). Needs a run without split-merge")
     r.set_defaults(func=cmd_run)
     args = parser.parse_args(argv)
     return args.func(args)

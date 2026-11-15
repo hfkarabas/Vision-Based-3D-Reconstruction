@@ -73,18 +73,20 @@ def tile_signals(dsm_path, overlap_path, laz_path, origin, size: float, shape) -
     dens = counts / size ** 2
     med = float(np.median(dens[dens > 0])) if (dens > 0).any() else 1.0
     rows = []
-    with rasterio.open(dsm_path) as dsm, rasterio.open(overlap_path) as ov:
+    from contextlib import nullcontext
+    with rasterio.open(dsm_path) as dsm, (rasterio.open(overlap_path) if overlap_path else nullcontext()) as ov:
         for tid in range(shape[0] * shape[1]):
             iy, ix = divmod(tid, shape[1])
             b = (origin[0] + ix * size, origin[1] + iy * size, origin[0] + (ix + 1) * size, origin[1] + (iy + 1) * size)
             z = _window(dsm, b)
-            o = _window(ov, b)
-            ov_valid = o.compressed()
-            ov_valid = ov_valid[ov_valid > 0]
+            if ov is not None:
+                ov_valid = _window(ov, b).compressed()
+                ov_valid = ov_valid[ov_valid > 0]
             zc = z.compressed()
             rows.append({
                 "id": tid, "ix": ix, "iy": iy, "bounds": list(b),
-                "overlap": float(np.median(ov_valid)) if len(ov_valid) else 0.0,
+                # no overlap raster (ODM statistics missing) -> None, i.e. the block-median rank
+                "overlap": None if ov is None else (float(np.median(ov_valid)) if len(ov_valid) else 0.0),
                 "void": round(1.0 - z.count() / z.size, 4) if z.size else 1.0,
                 "density": round(float(dens[tid]) / med, 4),
                 "roughness": None if (r := plane_rms(z)) is None else round(r, 3),

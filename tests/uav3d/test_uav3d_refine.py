@@ -49,7 +49,7 @@ def test_merge_pipeline_replaces_coarse_inside_groups():
                               "EPSG:32633", refine.Path("out.laz"))
     assert all(s.get("override_srs", "EPSG:32633") == "EPSG:32633" for s in p)
     keep = next(s for s in p if s.get("tag") == "keep")
-    assert keep["outside"] is True and "1000.0 2000.0" in keep["polygon"] and "1200.0 2000.0" in keep["polygon"]
+    assert keep["type"] == "readers.las" and not any(s.get("outside") for s in p)  # coarse is pre-cropped
     merge = next(s for s in p if s["type"] == "filters.merge")
     assert merge["inputs"] == ["keep", "a0", "a1"]
     shift = next(s for s in p if s.get("tag") == "t0")
@@ -62,3 +62,23 @@ def test_merge_pipeline_without_coarse_writes_only_refined():
     st = refine.merge_pipeline(None, [("a.ply", [t])], (100.0, 200.0), "EPSG:32633", "o.laz")
     assert [s["type"] for s in st][0] == "readers.ply"
     assert st[-2]["inputs"] == ["a0"]
+
+
+def test_drop_tiles_removes_points_inside_chosen_tiles_only(tmp_path):
+    import laspy
+    import numpy as np
+
+    h = laspy.LasHeader(point_format=3, version="1.2")
+    h.offsets, h.scales = [1000, 2000, 0], [0.001] * 3
+    las = laspy.LasData(h)
+    # reconstruction-frame grid of 10 m tiles anchored at (0, 0); offset (1000, 2000) -> UTM
+    xs = np.array([5.0, 15.0, 25.0, 5.0, 15.0]) + 1000
+    ys = np.array([5.0, 5.0, 5.0, 15.0, 15.0]) + 2000
+    las.x, las.y, las.z = xs, ys, np.zeros(5)
+    las.classification = np.array([2, 2, 2, 3, 6], dtype=np.uint8)
+    las.write(tmp_path / "c.laz")
+    tiles = refine.grid(0, 0, 30, 20, 10)  # ids 0..2 bottom row, 3..5 top row
+    r = refine.drop_tiles(tmp_path / "c.laz", [tiles[1], tiles[3]], (1000.0, 2000.0), tmp_path / "o.laz")
+    out = laspy.read(tmp_path / "o.laz")
+    assert r == {"kept": 3, "dropped": 2}
+    assert sorted(zip(np.round(out.x - 1000), np.round(out.y - 2000))) == [(5, 5), (15, 15), (25, 5)]
