@@ -17,22 +17,26 @@ Add-Type -Namespace Win32 -Name Power3 -MemberDefinition @'
 [void][Win32.Power3]::SetThreadExecutionState([uint32]"0x80000001")
 function Say($m) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $m" }
 try {
-    # UseGeo-2 per-tile scores failed in the chain (no ODM overlap.tif after an SfM-only run; fixed in
-    # bench/tile_gains.py): score and replay it here. Light on RAM, so it runs alongside the chain's last steps.
-    $u2 = "outputs\holdout\usegeo_2_unsplit"
-    if (-not (Test-Path "$u2\tile_gains.json")) {
-        Say "UseGeo-2 per-tile scores ..."
-        & $Python bench\tile_gains.py $u2 "datasets\usegeo\dataset-2\LiDAR_dataset2.las" *> "$u2\tile_gains.log"
-        Say "tile_gains exit=$LASTEXITCODE"
-    }
-    if ((Test-Path "$u2\tile_gains.json") -and -not (Test-Path "$u2\adaptive_replay.json")) {
-        Say "UseGeo-2 replay with the frozen model ..."
-        & $Python bench\adaptive_replay.py $u2 --model configs\gain_model.json
-    }
+    # one job at a time: two scoring jobs in parallel ended in a system crash (2026-11-15 15:00)
     Say "waiting for the hold-out chain and its replays (RAM) ..."
     while (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
            Where-Object { $_.CommandLine -like '*run_holdout_adaptive.ps1*' -or $_.CommandLine -like '*run_after_holdout.ps1*' }) {
         Start-Sleep 60
+    }
+    # per-tile scores and frozen-model replays of the hold-out blocks, where missing (UseGeo-2 failed in the
+    # chain for lack of ODM's overlap.tif, fixed in bench/tile_gains.py; UseGeo-3 was cut by the crash)
+    foreach ($n in 3, 2) {
+        $u = "outputs\holdout\usegeo_$($n)_unsplit"
+        if (-not (Test-Path "$u\tile_gains.json")) {
+            Say "UseGeo-$n per-tile scores ..."
+            & $Python bench\tile_gains.py $u "datasets\usegeo\dataset-$n\LiDAR_dataset$n.las" *> "$u\tile_gains.log"
+            Say "tile_gains exit=$LASTEXITCODE"
+        }
+        if ((Test-Path "$u\tile_gains.json") -and -not (Test-Path "$u\adaptive_replay.json")) {
+            Say "UseGeo-$n replay with the frozen model ..."
+            & $Python bench\adaptive_replay.py $u --model configs\gain_model.json *> "$u\adaptive_replay.log"
+            Say "replay exit=$LASTEXITCODE"
+        }
     }
     foreach ($s in @(@("urban", "Scene1"), @("rural", "Scene2"))) {
         $out = "outputs\tune\airzoo_$($s[0])_oblique"
