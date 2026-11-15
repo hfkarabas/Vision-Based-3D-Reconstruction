@@ -79,8 +79,8 @@ Fizibilite (2026-11-14, ODM 3.6.2'nin OpenMVS/OpenSfM ikilileri, Sheffield sahne
    ODM `overlap.tif`, derinlik haritası güvenleri. Maliyeti ölçülür: `C_1`.
 3. **Sinyaller** (karo başına, referanssız):
    - `s_ov`: medyan görüntü örtüşmesi (ODM `opensfm/stats/overlap.tif`) — düşük örtüşme ↔ büyük hata
-     (AirZoo rural, referans DSM'e göre: 2 görüntü medyan |hata| 2,3 m, ≥8 görüntü 0,5 m; UseGeo-1'de LiDAR'la
-     tekrarlanacak).
+     (UseGeo 1/2/3, LiDAR'a göre kaba F20 ile Spearman 0,62 / 0,61 / 0,46; <5 görüntü medyan F20 0,23–0,46,
+     10–20 görüntü 0,81–0,84).
    - `s_void`: DSM boşluk oranı (geçiş 1 bulutundan, ince ızgarada).
    - `s_dens`: nokta yoğunluğu / beklenen yoğunluk (GSD ve düzeyden).
    - `s_rough`: yerel pürüzlülük (DSM'in düzlem artığı) — yapı/bitki kenarları ince düzeyden en çok kazanır.

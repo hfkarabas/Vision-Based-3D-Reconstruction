@@ -8,22 +8,6 @@
    "crs": "EPSG:32617",
    "areas": 1,
    "area_m2": 47334
-  },
-  {
-   "scene": "airzoo_urban",
-   "gpkg": "labels\\buildings\\airzoo_urban.gpkg",
-   "background": "labels\\buildings\\_backgrounds\\airzoo_urban.tif",
-   "crs": "EPSG:32649",
-   "areas": 5,
-   "area_m2": 72000
-  },
-  {
-   "scene": "airzoo_rural",
-   "gpkg": "labels\\buildings\\airzoo_rural.gpkg",
-   "background": "labels\\buildings\\_backgrounds\\airzoo_rural.tif",
-   "crs": "EPSG:32649",
-   "areas": 5,
-   "area_m2": 72000
   }
  ]
 }

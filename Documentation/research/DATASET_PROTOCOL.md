@@ -22,8 +22,6 @@ Daha önce Codex oturumlarında üzerinde çalışılmış her yerel dataset kir
 | Kimlik | Kaynak | Ülke | Platform / kamera | Görüntü | Referans | Lisans | Rol |
 |---|---|---|---|---|---|---|---|
 | `sheffield_cross` | [pierotofy/drone_dataset_sheffield_cross](https://github.com/pierotofy/drone_dataset_sheffield_cross) | ABD (Florida; adı yanıltıcı) | DJI Phantom 3 (FC300S), 4000×3000 | 172 | GCP dosyası | Public domain (Unlicense) | Ayar |
-| `airzoo_rural_s2` | [AirZoo-Real](https://huggingface.co/datasets/RingoWRW97/AirZoo-Real) | Çin (EPSG:4547) | DJI Matrice 4T, 4032×3024, RTK/PPK | 193 dosya (190 kayıtlı) | DOM + DSM | Doğrulanmalı | Ayar |
-| `airzoo_urban_s1` | AirZoo-Real | Çin | DJI Matrice 4T, RTK/PPK | 164 dosya (161 kayıtlı) | DOM + DSM | Doğrulanmalı | Ayar |
 | `jb3d` (kısmi) | [JB3D](https://github.com/JB3D-Dataset/Multi-View-Stereo) | Belirtilmemiş | İHA video 3840×2160 @30 fps | Kısmi indirme | LiDAR (5 bulut), ECEF/ENU | CC BY 4.0 | Hold-out adayı (bkz. 3) |
 | `tnt_caterpillar` | Tanks and Temples | — | El kamerası video | — | Lazer (yerelde yok) | T&T şartları | Kapsam dışı (İHA değil) |
 | `temple`, `sceaux`, `middlebury` | Middlebury / OpenMVG örnekleri | — | Masaüstü nesne | 6–30 | — | — | Kapsam dışı (eski pipeline birim testi) |
@@ -98,4 +96,3 @@ G5 eşikleri bu belgeyle ilan edildi. Ayar setlerinde gerçekleşmezse eşik de�
 - [ ] UrbanScene3D gerçek sahne listesi ve lisans
 - [ ] H3D: ham görüntü erişimi var mı?
 - [ ] ODMdata genellik setlerini indir; her birinin lisansını kaydet
-- [ ] AirZoo-Real lisansını doğrula

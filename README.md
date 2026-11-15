@@ -238,19 +238,19 @@ The dense stage estimates bidirectionally checked stereo depth, requires corrobo
 
 The mesh is an open visible surface with image-derived vertex colors. PLY and GLB preserve those colors. GLB rotates the axes to right/up/back. Use `--obj` to export OBJ geometry with vertex normals and `--target-faces 600000` to request a simplified mesh. Metric georeferencing remains unsupported.
 
-For photographic UVs, select **Photo GLB + OBJ** when running a dense mesh in the desktop. **Open UV GLB** previews the exported asset. Use F or R to fit and reset the scene. I/J/K/L pan the view. The exporter records the textured area and retains vertex colors in untextured GLB regions. Keep the OBJ, MTL and atlas together. [Surface asset workflow](docs/SURFACE_ASSETS.md) · [AirZoo benchmark results](docs/AIRZOO_SURFACE_VALIDATION.md)
+For photographic UVs, select **Photo GLB + OBJ** when running a dense mesh in the desktop. **Open UV GLB** previews the exported asset. Use F or R to fit and reset the scene. I/J/K/L pan the view. The exporter records the textured area and retains vertex colors in untextured GLB regions. Keep the OBJ, MTL and atlas together. [Surface asset workflow](docs/SURFACE_ASSETS.md)
 
-For UAV sequences, **uav-conditioned** is an opt-in desktop **Multi-view** profile and a `dense-sequence --profile uav-conditioned` option. It skips stereo candidates with weak median effective disparity and applies the same 28 px minimum to candidate and corroborating depth. The original **uav** profile is still available. Conditioning can leave gaps where the images provide no usable alternative. [AirZoo geometry experiments](docs/AIRZOO_GEOMETRIC_RECOVERY.md)
+For UAV sequences, **uav-conditioned** is an opt-in desktop **Multi-view** profile and a `dense-sequence --profile uav-conditioned` option. It skips stereo candidates with weak median effective disparity and applies the same 28 px minimum to candidate and corroborating depth. The original **uav** profile is still available. Conditioning can leave gaps where the images provide no usable alternative.
 
 Use **uav-recovery** to try bounded alternate stereo witnesses with the same geometric gates. It is opt-in. The desktop accepts up to 80 photos in the UAV profiles and reads the primary photograph from DJI MPO containers stored as JPG.
 
-The opt-in **uav-coverage** profile retries stereo pairs that return very little reciprocal depth, within the existing per-view attempt budget. For matched renderer, depth and mesh comparisons and the external-depth review candidate, see [AirZoo visual recovery](docs/AIRZOO_VISUAL_RECOVERY.md).
+The opt-in **uav-coverage** profile retries stereo pairs that return very little reciprocal depth, within the existing per-view attempt budget.
 
 ```powershell
 .venv/Scripts/python.exe -m vision3d.cli reconstruct-asset --input datasets/uav-photos --profile uav-recovery --obj --output outputs/uav-demo
 ```
 
-Use `--images` for an explicit subset, `--camera` for measured intrinsics or `--sparse-dir` to reuse a successful sparse run. The command writes `workflow.json`, a dense PLY, an optimized surface and textured assets under the new output directory. Geometry remains partial where the source views give insufficient evidence. [Mission benchmark and launch notes](docs/AIRZOO_MISSION_III_C.md)
+Use `--images` for an explicit subset, `--camera` for measured intrinsics or `--sparse-dir` to reuse a successful sparse run. The command writes `workflow.json`, a dense PLY, an optimized surface and textured assets under the new output directory. Geometry remains partial where the source views give insufficient evidence.
 
 Start with **fast** for meshes. Higher profiles use more memory, and optional CLI `--target-faces` simplification can take substantially longer and may retain more faces than requested. See the [evaluation](docs/MULTIVIEW_EVALUATION.md) and [engineering report](docs/MULTIVIEW_COMPLETION_REPORT.md) for measurements and limitations.
 

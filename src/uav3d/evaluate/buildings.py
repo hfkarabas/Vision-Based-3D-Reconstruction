@@ -93,8 +93,6 @@ def evaluate(run_dir: Path, label_gpkg: Path, iou_min: float = 0.3) -> dict:
 
 TUNE_SCENES = {  # labelled tune scenes: name -> default run folder
     "sheffield": "outputs/uav3d/sheffield",
-    "airzoo_urban": "outputs/tune/airzoo_urban",
-    "airzoo_rural": "outputs/tune/airzoo_rural",
 }
 
 

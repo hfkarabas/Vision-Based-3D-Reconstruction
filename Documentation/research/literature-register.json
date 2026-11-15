@@ -507,19 +507,6 @@
     "doi": "10.1111/cgf.14925"
   },
   {
-    "id": "L40",
-    "title": "AirZoo: A Unified Large-Scale Dataset for Grounding Aerial Geometric 3D Vision",
-    "authors": "Xiaoya Cheng, Rouwan Wu, Xinyi Liu, Zeyu Cui, Yan Liu, Na Zhao, Yu Liu, Maojun Zhang, Shen Yan",
-    "year": "2026",
-    "venue": "ECCV acceptance reported by dataset authors",
-    "sources": "https://arxiv.org/abs/2604.26567; https://huggingface.co/datasets/RingoWRW97/AirZoo-Real",
-    "summary": "Large rendered aerial corpus plus real benchmarks; confirms split provenance, not the accuracy of local DSM products",
-    "decision_and_review_depth": "Include / A; proceedings record not separately inspected",
-    "screening_date": "2026-11-12",
-    "category": "datasets/evaluation",
-    "doi": null
-  },
-  {
     "id": "L41",
     "title": "Conformalized confidence calibration for multi-view 3D reconstruction",
     "authors": "Mianqi Dong, Yi Li",

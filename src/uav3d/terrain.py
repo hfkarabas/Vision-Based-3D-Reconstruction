@@ -232,8 +232,7 @@ def clean(odm, laz: str, odm_dtm: str, odm_dsm: str, gsd_m: float | None, cfg: d
 def overlap_summary(overlap_tif) -> dict:
     """Share of the surveyed area seen by n images (ODM's opensfm/stats/overlap.tif).
 
-    Reference-free reliability signal: on the AirZoo rural tune set the DTM error grows
-    steadily as overlap falls (median |error| 0.5 m at >= 8 images, 2.3 m at 2)."""
+    Reference-free reliability signal: areas seen by few images are reconstructed less reliably."""
     with rasterio.open(overlap_tif) as ds:
         a = ds.read(1, masked=True).compressed()
     if a.size == 0:

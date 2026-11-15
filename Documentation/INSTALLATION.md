@@ -11,7 +11,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip check
 ```
 
-The lock file records the Windows validation environment. The repository's Python package can also be installed with `pip install -e ".[dev]"`. For an existing uv environment without pip, use `uv pip check --python .venv/Scripts/python.exe`. Blender is required only for building the independently validated release bundle. Dataset downloads, original photos and generated assets live outside Git. The AirZoo comparisons require the original local photos and separately prepared benchmark metadata.
+The lock file records the Windows validation environment. The repository's Python package can also be installed with `pip install -e ".[dev]"`. For an existing uv environment without pip, use `uv pip check --python .venv/Scripts/python.exe`. Blender is required only for building the independently validated release bundle. Dataset downloads, original photos and generated assets live outside Git.
 
 ```powershell
 .venv\Scripts\python.exe -m tkinter

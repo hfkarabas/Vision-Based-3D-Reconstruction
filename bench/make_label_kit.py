@@ -5,10 +5,8 @@ For each scene: labels/buildings/<scene>.gpkg with
     squares (fixed seed, fully inside the survey interior, non-overlapping) so the labelled
     sample is not chosen by the person who designs the method;
   - layer "buildings": empty polygons with an integer field "uncertain" (1 = not sure).
-and a background image in labels/buildings/_backgrounds/ (git-ignored):
-  - "odm": the run's own orthophoto, JPEG-compressed with overviews;
-  - "airzoo_dom": AirZoo's reference DOM (stored bottom-up, CRS missing) rewritten north-up
-    with EPSG:4547, so QGIS opens it directly.
+and a background image in labels/buildings/_backgrounds/ (git-ignored): the run's own orthophoto,
+JPEG-compressed with overviews.
 Usage: python bench/make_label_kit.py
 """
 from __future__ import annotations
@@ -20,8 +18,6 @@ import geopandas as gpd
 import numpy as np
 import pyogrio
 import rasterio
-from affine import Affine
-from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.features import shapes
 from shapely.geometry import box, shape
@@ -31,11 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "labels" / "buildings"
 SEED = 20261114
 SCENES = [
-    {"name": "sheffield", "run": "outputs/uav3d/sheffield", "background": "odm", "area": "full"},
-    {"name": "airzoo_urban", "run": "outputs/tune/airzoo_urban", "background": "airzoo_dom",
-     "dom": "datasets/airzoo/urban/Scene1/dom_dsm/DOM.tif", "area": "squares", "n": 5, "size_m": 120},
-    {"name": "airzoo_rural", "run": "outputs/tune/airzoo_rural", "background": "airzoo_dom",
-     "dom": "datasets/airzoo/rural/Scene2/dom_dsm/DOM.tif", "area": "squares", "n": 5, "size_m": 120},
+    {"name": "sheffield", "run": "outputs/uav3d/sheffield", "area": "full"},
 ]
 
 
@@ -84,16 +76,6 @@ def background_odm(run: Path, out: Path) -> None:
         _write_rgb(out, rgb, tr, ds.crs)
 
 
-def background_airzoo(dom: Path, out: Path) -> None:
-    with rasterio.open(dom) as ds:
-        f = 2
-        h, w = ds.height // f, ds.width // f
-        rgb = ds.read([1, 2, 3], out_shape=(3, h, w), resampling=Resampling.average)[:, ::-1, :]  # bottom-up -> north-up
-        t = ds.transform
-        tr = Affine(t.a * f, 0, t.c, 0, -t.a * f, t.f + t.e * ds.height)
-    _write_rgb(out, rgb, tr, CRS.from_epsg(4547))
-
-
 def _write_rgb(out: Path, rgb, tr, crs) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     profile = {"driver": "GTiff", "height": rgb.shape[1], "width": rgb.shape[2], "count": 3, "dtype": "uint8",
@@ -112,7 +94,7 @@ def main() -> None:
         survey, crs = survey_polygon(run / "odm" / "project" / "odm_dem" / "dsm.tif")
         bg = OUT / "_backgrounds" / f"{sc['name']}.tif"
         if not bg.exists():
-            background_odm(run, bg) if sc["background"] == "odm" else background_airzoo(REPO / sc["dom"], bg)
+            background_odm(run, bg)
         survey = survey.intersection(image_footprint(bg, crs))  # label only what is both reconstructed and visible
         if sc["area"] == "full":
             areas = [survey.buffer(0)]

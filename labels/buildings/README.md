@@ -6,8 +6,6 @@ Kit `python bench/make_label_kit.py` ile üretildi (sabit tohum 20261114; örnek
 | Sahne | Dosya | Etiketlenecek alan | Arka plan |
 |---|---|---|---|
 | sheffield | `sheffield.gpkg` | tüm uçuş alanı | bizim ortofoto |
-| airzoo_urban | `airzoo_urban.gpkg` | 5 kare, 120 × 120 m | AirZoo referans DOM |
-| airzoo_rural | `airzoo_rural.gpkg` | 5 kare, 120 × 120 m | AirZoo referans DOM |
 
 Arka plan görüntüleri `_backgrounds/` altında (git'e girmez; kit betiği yeniden üretir).
 
@@ -26,5 +24,5 @@ Arka plan görüntüleri `_backgrounds/` altında (git'e girmez; kit betiği yen
 - Karenin içindeki **tüm** binaları çiz; kareden taşan binaları da tam çiz.
 - Kaba dikdörtgen yeter; L şekli → iki dikdörtgen. 3 × 3 m'den küçükleri atla.
 - Sera, baraka, çadır dahil: duvarı ve çatısı olan her şey bina.
-- Çatı görünen yere göre çiz. Yüksek blokta referans görüntü dik bakış (true ortho), çatı ile taban aynı yerde.
+- Çatı görünen yere göre çiz.
 - Emin değilsen çiz ve `uncertain = 1` yaz; hiç çizmemekten iyidir.
