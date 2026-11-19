@@ -62,7 +62,7 @@ Fizibilite (2026-11-14, ODM 3.6.2'nin OpenMVS/OpenSfM ikilileri, Sheffield sahne
   ekliyor. Tam ince F20 0,637 < oracle %75 0,661.
 - Spearman (gain_f20): yoğunluk +0,33, örtüşme +0,18, boşluk −0,17, rölyef +0,16, pürüzlülük +0,14 (hepsi p<0,05).
   Yön: kazanç yoğun/çok örtüşmeli karolarda → "düşük örtüşme önce" statik kural ters çalışıyor.
-- Model (`configs/gain_model.json`, commit f1036b4, hold-out görülmeden donduruldu): yoğunluk 0,0020, rölyef 0,0006,
+- Model (`configs/gain_model.json`, commit d09c00e, hold-out görülmeden donduruldu): yoğunluk 0,0020, rölyef 0,0006,
   bias −0,0012; tahmin–gerçek katkı Spearman 0,68. Seçim yalnız tahmini katkı > 0 olan karolar (oracle gibi).
 - Replay F20 (β 25/50/75): adaptive 62,6/63,4/64,6; static 59,2/58,4/60,6; random ort. 60,5/60,4/61,9;
   oracle 63,1/64,6/66,1; kaba 61,6; tam ince 63,7.
